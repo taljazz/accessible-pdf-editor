@@ -507,7 +507,7 @@ tests/
 
 ## Dependencies
 
-- **PdfPig 0.1.15** (MIT) — reading: text with positions, the tag tree, outlines, annotations
+- **PdfPig 0.1.15** (Apache-2.0) — reading: text with positions, the tag tree, outlines, annotations
 - **PDFsharp 6.2.4** (MIT) — writing: form values, appearance streams, metadata
 - **Microsoft.Web.WebView2** — the browse view, which is what gives the screen reader a real
   document to read rather than an imitation of one. Degrades to the text view when the runtime is
@@ -518,3 +518,13 @@ tests/
 Every library-specific workaround in this codebase was found by writing code that exercised the
 library and reading back what it produced, not from documentation. Where a library misbehaves, the
 comment at the call site says what was observed.
+
+Five native DLLs are redistributed in this repository — Tolk and its bundled screen-reader clients,
+and OpenAL Soft — because without them the program cannot speak. Their licences and provenance are
+recorded in **[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md)**, read from the binaries and package
+metadata rather than from memory. One of them, Dolphin's `SAAPI64.dll`, carries no licence statement
+of its own and is flagged there as unverified.
+
+**No licence is declared for this project's own code**, which means default copyright applies and
+nobody may reuse it. If you want it to be usable by others, add a `LICENSE` file — MIT would sit
+comfortably with the dependencies above.
