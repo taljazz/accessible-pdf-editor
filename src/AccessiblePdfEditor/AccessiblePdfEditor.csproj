@@ -9,6 +9,11 @@
     <RootNamespace>AccessiblePdfEditor</RootNamespace>
     <AssemblyName>AccessiblePdfEditor</AssemblyName>
     <!--
+      Reported by the About box, so that someone describing a problem can say which build they are
+      on without being asked to go looking. Bump this when cutting a release.
+    -->
+    <Version>1.0.1</Version>
+    <!--
       Tolk.dll and the screen-reader client DLLs are 64-bit only, so the process must be too.
       A 32-bit host would load none of them and the editor would fall silent.
     -->

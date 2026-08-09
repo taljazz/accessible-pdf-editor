@@ -989,8 +989,14 @@ public sealed partial class MainForm
 
     private void ShowAbout()
     {
+        // The version is spoken first and deliberately: it is the one fact a person reporting a
+        // problem needs to hand, and asking a blind user to go hunting through file properties for
+        // it is exactly the sort of small indignity this program is supposed to avoid.
+        var version = typeof(MainForm).Assembly.GetName().Version;
+
         string message =
-            "Accessible PDF Editor. Reads PDFs aloud with full structure navigation, fills in forms, " +
+            $"Accessible PDF Editor, version {version?.ToString(3) ?? "unknown"}. " +
+            "Reads PDFs aloud with full structure navigation, fills in forms, " +
             "and repairs a document's accessibility: image descriptions, form field names, headings, " +
             "table headers, language and title. " +
             "It cannot rewrite the text already printed on a page — PDF is a fixed-layout format and " +
