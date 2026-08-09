@@ -461,6 +461,24 @@ internal static class BrowseViewTests
                 "a quote in a value must not escape the attribute it sits in");
         });
 
+        t.Test("Alt+F4 is not swallowed by the page", () =>
+        {
+            // A real bug, reported by the user: the browse view became the default reading surface,
+            // focus therefore sits inside a web view, and the key forwarding treated Alt+F4 like any
+            // other function key — reporting it to the program and calling preventDefault. Nothing
+            // handled it, so the window could not be closed with the one keystroke every Windows
+            // user knows. A program that traps its user is broken however well it reads.
+            var document = BuildDocument(page => page.AddChild(new ParagraphElement(1, "Text.")));
+
+            string html = DocumentHtmlWriter.Write(document).Html;
+
+            t.Says(html, "isWindowsKey");
+            t.IsTrue(html.Contains("event.keyCode === 115", StringComparison.Ordinal),
+                "F4 must be recognised as belonging to Windows rather than to this program");
+            t.IsTrue(html.Contains("if (!isWindowsKey)", StringComparison.Ordinal),
+                "and preventDefault must be skipped for it");
+        });
+
         t.Test("the page declares a policy that blocks the network", () =>
         {
             var document = BuildDocument(page => page.AddChild(new ParagraphElement(1, "Text.")));

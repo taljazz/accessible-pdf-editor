@@ -929,7 +929,14 @@ public static class DocumentHtmlWriter
             post({ kind: 'key', code: event.keyCode, ctrl: event.ctrlKey,
                    shift: event.shiftKey, alt: event.altKey });
 
-            event.preventDefault();
+            // Keys that belong to Windows rather than to any program: Alt+F4 to close the window,
+            // Alt+Space for the window menu. They are reported to the host so it can act on them,
+            // but NOT swallowed — a window the user cannot close with the key every other window
+            // closes with is broken, and no amount of the program's own shortcuts makes up for it.
+            var isWindowsKey = event.altKey && (event.keyCode === 115 || event.keyCode === 32);
+
+            if (!isWindowsKey)
+              event.preventDefault();
           });
         })();
         """;

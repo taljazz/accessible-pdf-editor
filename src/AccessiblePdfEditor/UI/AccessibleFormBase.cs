@@ -179,6 +179,21 @@ public abstract class AccessibleFormBase : Form
             case Keys.Control | Keys.Space:
                 Speech.RepeatLast();
                 return true;
+
+            // Closing the window.
+            //
+            // Windows normally does this itself, without any program's help, which is why nothing
+            // here used to mention it. But a control that hosts something else — a web view — can
+            // route the keystroke through the application's key handling instead of leaving it to
+            // the window manager, and then it reaches here, matches nothing, and is quietly lost.
+            // The user could not close the main window at all.
+            //
+            // Handled at the base rather than in the one window where it was noticed, because the
+            // fault belongs to the routing and not to that window, and because a program that
+            // traps its user is broken however well it reads.
+            case Keys.Alt | Keys.F4:
+                Close();
+                return true;
         }
 
         if (HandleShortcut(keyData))

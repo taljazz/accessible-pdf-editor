@@ -338,6 +338,16 @@ public sealed partial class MainForm
             return;
         }
 
+        // Closing the window. Windows would normally do this without anyone's help, but focus is
+        // inside a web view, and a key pressed there reaches this program rather than the window
+        // manager. Handled explicitly rather than relying on it finding its own way out: Alt+F4 is
+        // the one keystroke every Windows user knows, and a window that ignores it feels stuck.
+        if (e.KeyData == (Keys.Alt | Keys.F4))
+        {
+            Close();
+            return;
+        }
+
         if (HandleShortcut(e.KeyData))
             return;
 
