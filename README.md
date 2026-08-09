@@ -332,13 +332,40 @@ Deleting reads the comment back in full before asking, rather than saying "delet
 Someone who cannot see the page has no other way to check they are on the one they meant, and a
 deleted remark is not recoverable once the file is saved.
 
-**One limitation, stated rather than hidden:** the annotation is written correctly — `/Contents`
-for the reader, `/T` for the author, `/M` in PDF's own date format so other editors sort the thread
-— but it is **not** added to the structure tree. PDF/UA wants annotations there. Doing it means
-rewriting `/StructTreeRoot`, and this project has already measured what PDFsharp does to structure
-trees in files using object streams: it destroys them, in 24 of 24 real tagged documents tested.
-Trading a working structure tree for a correctly placed comment is a bad bargain in an
-accessibility tool.
+**Comments are tagged into the structure tree**, which PDF/UA requires and a checker reports as a
+fault when missing. The annotation is written with `/Contents` for the reader, `/T` for the author
+and `/M` in PDF's own date format so other editors sort the thread — and then given an `/Annot`
+structure element that reaches it through an `/OBJR` object reference.
+
+The detail worth recording, because guessing it produces a file that opens, validates structurally
+and leads nowhere — ISO 32000 clause 14.7.5:
+
+> For an object identified as a content item by means of an object reference, the value is an
+> indirect reference to the parent structure element. For a content stream containing
+> marked-content sequences that are content items, the value is an array…
+
+So a page's `/StructParents` maps to an **array** indexed by MCID, while an annotation's
+`/StructParent` maps to a **single reference**. Write an array and the tag exists with nothing able
+to reach it from the annotation. A test asserts the value is not an array.
+
+This is safe in exactly the case that worries this project most: a structure tree PDFsharp cannot
+see comes back as null, so nothing is written and nothing is damaged — and those documents are
+refused before the save gets that far anyway.
+
+Two consequences that had to be handled rather than discovered later:
+
+- **Deleting a comment removes its tag too.** A structure element pointing at an annotation that no
+  longer exists is a broken tree — a worse fault than the untagged annotation it replaced.
+- **A deleted tag is a structure element going missing**, which is the single failure the save's
+  fingerprint guard exists to catch. It rolled the entire save back until the deletion was declared
+  to it. The count passed is the exact number of tags the writer actually removed, never an
+  estimate: too low refuses a legitimate save, too high excuses the real loss of somebody's
+  headings.
+
+**Untagged documents are deliberately left alone.** Creating a structure tree means setting
+`/MarkInfo /Marked true`, and a document that claims to be tagged while its text is not is worse
+than an honest untagged one — checkers and readers believe the claim. The comment is still written
+and still perfectly readable; tagging is a bonus, not a precondition.
 
 ### For people who can see the screen
 
@@ -470,7 +497,7 @@ dotnet run --project tests/AccessiblePdfEditor.Tests/AccessiblePdfEditor.Tests.c
 ```
 
 The test runner is a plain console program with no test-framework dependency, and exits non-zero on
-failure so it can gate a build. **257 tests, 1982 checks, all passing; 0 warnings in Debug and
+failure so it can gate a build. **262 tests, 2000 checks, all passing; 0 warnings in Debug and
 Release.**
 
 The browse view needs the **Microsoft Edge WebView2 runtime**, which ships with Windows 11 and with

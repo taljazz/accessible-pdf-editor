@@ -36,6 +36,7 @@ internal static class AnnotationTests
         RegisterDeleting(t);
         RegisterBrowseView(t);
         RegisterRoundTrip(t);
+        RegisterTagging(t);
     }
 
     #region Adding
@@ -467,6 +468,223 @@ internal static class AnnotationTests
             t.IsTrue(formatted.Contains("+01'00'", StringComparison.Ordinal),
                 $"and carry the UTC offset, but was {formatted}");
         });
+    }
+
+    #endregion
+
+    #region Tagging into the structure tree
+
+    private static void RegisterTagging(TestRunner t)
+    {
+        t.Group("comments — in the structure tree");
+
+        t.Test("a comment in a tagged document joins the structure tree", () =>
+        {
+            // PDF/UA requires annotations to be tagged. Untagged, a checker reports the comment as
+            // a fault and it has no place in the reading order.
+            WithTaggedDocument(t, (document, path, saver) =>
+            {
+                var anchor = document.Pages[0];
+                new AddAnnotationCommand(anchor, "Tag me.", "Denise").Apply(document);
+
+                var result = saver.Save(document, new SaveOptions { CreateBackup = false, TargetPath = path });
+                t.IsTrue(result.Outcome is SaveOutcome.Saved, $"the save should succeed: {result.Message}");
+
+                using var sharp = PdfSharp.Pdf.IO.PdfReader.Open(path, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Modify);
+                var root = sharp.Internals.Catalog.Elements.GetDictionary("/StructTreeRoot");
+
+                t.IsNotNull(root, "the structure tree should still be there");
+                t.IsNotNull(FindAnnotStructureElement(root!), "and should now contain an Annot element");
+            });
+        });
+
+        t.Test("the parent tree entry is a single reference, not an array", () =>
+        {
+            // The one detail that is silently wrong if guessed. ISO 32000 clause 14.7.5: an object
+            // reaching the tree by object reference maps to a single reference; only marked content
+            // maps to an array. An array here produces a tag nothing can reach from the annotation,
+            // and the file still opens and still validates structurally.
+            WithTaggedDocument(t, (document, path, saver) =>
+            {
+                new AddAnnotationCommand(document.Pages[0], "Reachable?", "Denise").Apply(document);
+                saver.Save(document, new SaveOptions { CreateBackup = false, TargetPath = path });
+
+                using var sharp = PdfSharp.Pdf.IO.PdfReader.Open(path, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Modify);
+                var root = sharp.Internals.Catalog.Elements.GetDictionary("/StructTreeRoot")!;
+
+                var numbers = root.Elements.GetDictionary("/ParentTree")?.Elements.GetArray("/Nums");
+                t.IsNotNull(numbers, "there should be a parent tree");
+
+                var element = FindAnnotStructureElement(root);
+                t.IsNotNull(element, "there should be an Annot structure element");
+
+                bool foundAsSingleReference = false;
+
+                for (int i = 0; i + 1 < numbers!.Elements.Count; i += 2)
+                {
+                    var value = numbers.Elements[i + 1];
+
+                    if (value is PdfSharp.Pdf.PdfArray)
+                        continue;
+
+                    if (ReferenceEquals(ResolveDictionary(value), element))
+                        foundAsSingleReference = true;
+                }
+
+                t.IsTrue(foundAsSingleReference,
+                    "the annotation's parent-tree value must be the structure element itself, not an array");
+            });
+        });
+
+        t.Test("the annotation points back at its parent-tree key", () =>
+        {
+            WithTaggedDocument(t, (document, path, saver) =>
+            {
+                new AddAnnotationCommand(document.Pages[0], "Linked.", "Denise").Apply(document);
+                saver.Save(document, new SaveOptions { CreateBackup = false, TargetPath = path });
+
+                using var sharp = PdfSharp.Pdf.IO.PdfReader.Open(path, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Modify);
+                var annotations = sharp.Pages[0].Elements.GetArray("/Annots");
+
+                t.IsNotNull(annotations, "the page should have annotations");
+
+                bool hasStructParent = false;
+
+                for (int i = 0; i < annotations!.Elements.Count; i++)
+                {
+                    if (ResolveDictionary(annotations.Elements[i]) is { } annotation
+                        && annotation.Elements.ContainsKey("/StructParent"))
+                    {
+                        hasStructParent = true;
+                    }
+                }
+
+                t.IsTrue(hasStructParent, "the annotation needs /StructParent or the tag is unreachable");
+            });
+        });
+
+        t.Test("deleting a tagged comment removes its structure element too", () =>
+        {
+            // A structure element pointing at an annotation that no longer exists is a broken tree —
+            // a worse fault than the untagged annotation it replaced.
+            WithTaggedDocument(t, (document, path, saver) =>
+            {
+                new AddAnnotationCommand(document.Pages[0], "Short lived.", "Denise").Apply(document);
+                saver.Save(document, new SaveOptions { CreateBackup = false, TargetPath = path });
+
+                var reloaded = new PdfPigDocumentLoader().Load(path).Document!;
+                var comment = reloaded.Annotations.First(a => a.Contents == "Short lived.");
+
+                new DeleteAnnotationCommand(comment).Apply(reloaded);
+
+                var result = saver.Save(reloaded, new SaveOptions { CreateBackup = false, TargetPath = path });
+                t.IsTrue(result.Outcome is SaveOutcome.Saved, $"the save should succeed: {result.Message}");
+
+                using var sharp = PdfSharp.Pdf.IO.PdfReader.Open(path, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Modify);
+                var root = sharp.Internals.Catalog.Elements.GetDictionary("/StructTreeRoot")!;
+
+                t.IsNull(FindAnnotStructureElement(root),
+                    "the tag must go when the annotation it describes goes");
+            });
+        });
+
+        t.Test("an untagged document is NOT given a structure tree", () =>
+        {
+            // Deliberate. Creating one means claiming /MarkInfo /Marked true, and a document that
+            // says it is tagged while its text is not is worse than an honest untagged one: readers
+            // and checkers believe the claim.
+            WithSampleCopy(t, (document, path, saver) =>
+            {
+                var anchor = document.ReadingOrder.First(e => e is ParagraphElement);
+                new AddAnnotationCommand(anchor, "No tree here.", "Denise").Apply(document);
+
+                var result = saver.Save(document, new SaveOptions { CreateBackup = false, TargetPath = path });
+                t.IsTrue(result.Outcome is SaveOutcome.Saved, $"the save should still succeed: {result.Message}");
+
+                using var sharp = PdfSharp.Pdf.IO.PdfReader.Open(path, PdfSharp.Pdf.IO.PdfDocumentOpenMode.Modify);
+                var root = sharp.Internals.Catalog.Elements.GetDictionary("/StructTreeRoot");
+
+                t.IsTrue(root is null || root.Elements.Count == 0,
+                    "an untagged document must not be made to claim it is tagged");
+
+                // And the comment itself still works, which is the point: tagging is a bonus, not
+                // a precondition.
+                var reloaded = new PdfPigDocumentLoader().Load(path).Document!;
+                t.IsTrue(reloaded.Annotations.Any(a => a.Contents == "No tree here."),
+                    "the comment should be readable regardless");
+            });
+        });
+    }
+
+    private static PdfSharp.Pdf.PdfDictionary? FindAnnotStructureElement(PdfSharp.Pdf.PdfDictionary root)
+    {
+        var kids = root.Elements.GetArray("/K");
+
+        if (kids is null)
+            return null;
+
+        for (int i = 0; i < kids.Elements.Count; i++)
+        {
+            if (ResolveDictionary(kids.Elements[i]) is { } element
+                && string.Equals(element.Elements.GetName("/S"), "/Annot", StringComparison.Ordinal))
+            {
+                return element;
+            }
+        }
+
+        return null;
+    }
+
+    private static PdfSharp.Pdf.PdfDictionary? ResolveDictionary(PdfSharp.Pdf.PdfItem? item) => item switch
+    {
+        PdfSharp.Pdf.Advanced.PdfReference reference => reference.Value as PdfSharp.Pdf.PdfDictionary,
+        PdfSharp.Pdf.PdfDictionary dictionary => dictionary,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Runs a test against a minimal document that genuinely has a structure tree.
+    ///
+    /// Built here rather than found on disk, because the tagging path has to be exercised against a
+    /// tree PDFsharp can actually see. A real-world tagged PDF is usually stored in object streams,
+    /// which PDFsharp cannot read — that is the case the whole save-safety guard exists for, and a
+    /// test that silently landed on one would prove nothing.
+    /// </summary>
+    private static void WithTaggedDocument(
+        TestRunner t, Action<PdfDocumentModel, string, IDocumentSaver> test)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"ape-tagged-{Guid.NewGuid():N}.pdf");
+
+        try
+        {
+            using (var sharp = new PdfSharp.Pdf.PdfDocument())
+            {
+                sharp.AddPage();
+
+                var root = new PdfSharp.Pdf.PdfDictionary(sharp);
+                root.Elements.SetName("/Type", "StructTreeRoot");
+                root.Elements.SetValue("/K", new PdfSharp.Pdf.PdfArray(sharp));
+                sharp.Internals.AddObject(root);
+                sharp.Internals.Catalog.Elements.SetReference("/StructTreeRoot", root);
+
+                var markInfo = new PdfSharp.Pdf.PdfDictionary(sharp);
+                markInfo.Elements.SetBoolean("/Marked", true);
+                sharp.Internals.Catalog.Elements.SetValue("/MarkInfo", markInfo);
+
+                sharp.Save(path);
+            }
+
+            var loaded = new PdfPigDocumentLoader().Load(path);
+            t.IsNotNull(loaded.Document, "the tagged fixture should load");
+
+            if (loaded.Document is not null)
+                test(loaded.Document, path, new PdfSharpDocumentSaver());
+        }
+        finally
+        {
+            TryDelete(path);
+            TryDelete(path + ".bak");
+        }
     }
 
     #endregion

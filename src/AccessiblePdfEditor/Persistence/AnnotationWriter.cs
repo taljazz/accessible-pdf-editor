@@ -36,21 +36,24 @@ namespace AccessiblePdfEditor.Persistence;
 //  Without the fallback, editing a comment in a file produced by anything other than this
 //  program would silently do nothing.
 //
-//  WHAT THIS DOES NOT DO, AND WHY IT IS SAID OUT LOUD
+//  TAGGING
 //
-//  The annotation is NOT added to the document's structure tree. PDF/UA wants annotations
-//  present there as /Annot elements so they carry a place in the reading order. Doing that
-//  means rewriting /StructTreeRoot, and this project has already measured what PDFsharp
-//  does to structure trees in files that use object streams: it destroys them, in 24 of 24
-//  real tagged documents tested. Trading a working structure tree for a correctly placed
-//  comment would be a bad bargain in an accessibility tool, so the comment is written
-//  correctly in every other respect and this gap is documented rather than papered over.
+//  A written annotation is also given a place in the structure tree, because PDF/UA requires
+//  annotations to be tagged and a checker reports an untagged one as a fault. That work is in
+//  AnnotationStructureTagger, kept separate because the two jobs fail independently: a
+//  document with no structure tree still gets a perfectly good comment, it just has nowhere
+//  to file the tag.
+//
+//  This is safe in the case that worries this project most. A structure tree PDFsharp cannot
+//  see — the /ObjStm case measured at 24 of 24 real tagged documents — comes back as null,
+//  so nothing is written and nothing is damaged. Those documents are refused by
+//  StructureSafetyInspector before the save gets this far in any event.
 // =====================================================================================
 
 #region AnnotationWriteSummary
 
 /// <summary>What a write of the annotations actually did, for the save's verification step.</summary>
-public readonly record struct AnnotationWriteSummary(int Added, int Edited, int Deleted)
+public readonly record struct AnnotationWriteSummary(int Added, int Edited, int Deleted, int TagsRemoved)
 {
     /// <summary>
     /// How many annotations the file should have gained or lost. The save compares before and after
@@ -84,12 +87,17 @@ internal sealed class AnnotationWriter
     {
         int added = 0, edited = 0, deleted = 0;
 
+        // Counted exactly rather than estimated. This number is handed to the save's loss check as
+        // "I meant to remove this many tags", and an estimate there would either refuse a legitimate
+        // save or, worse, excuse a real loss of somebody's headings.
+        int tagsRemoved = 0;
+
         // Deletions first. Doing them after the additions would mean searching an array that now
         // contains this session's new annotations, and a rectangle-based match could then find the
         // wrong one.
         foreach (var annotation in document.DeletedAnnotations)
         {
-            if (Delete(annotation))
+            if (Delete(annotation, ref tagsRemoved))
                 deleted++;
         }
 
@@ -106,7 +114,7 @@ internal sealed class AnnotationWriter
             }
         }
 
-        return new AnnotationWriteSummary(added, edited, deleted);
+        return new AnnotationWriteSummary(added, edited, deleted, tagsRemoved);
     }
 
     #endregion
@@ -157,6 +165,11 @@ internal sealed class AnnotationWriter
 
         _sharp.Internals.AddObject(dictionary);
         AnnotationsArrayFor(page).Elements.Add(dictionary.Reference!);
+
+        // A place in the reading order, not just on the page. Does nothing when the document has
+        // no structure tree, which is the ordinary case and not a failure — the comment is still
+        // perfectly readable, it just has nowhere to be filed.
+        AnnotationStructureTagger.Tag(_sharp, page, dictionary, DescribeForTag(annotation));
 
         annotation.IsUnsaved = false;
         annotation.IsEdited = false;
@@ -221,7 +234,7 @@ internal sealed class AnnotationWriter
         return true;
     }
 
-    private bool Delete(AnnotationElement annotation)
+    private bool Delete(AnnotationElement annotation, ref int tagsRemoved)
     {
         var page = PageFor(annotation.PageNumber);
 
@@ -246,6 +259,11 @@ internal sealed class AnnotationWriter
             // Its popup is now orphaned, and an orphaned popup shows in some viewers as an empty
             // note the user cannot get rid of.
             RemovePopupOf(annotations, candidate);
+
+            // And its tag, which would otherwise be a structure element describing an annotation
+            // that no longer exists — a broken tree, and a worse fault than the one just fixed.
+            if (AnnotationStructureTagger.Untag(_sharp, candidate))
+                tagsRemoved++;
 
             return true;
         }
@@ -435,6 +453,21 @@ internal sealed class AnnotationWriter
 
     private static string Shorten(string value) =>
         value.Length <= 40 ? value : value[..40].TrimEnd() + "…";
+
+    /// <summary>
+    /// What the structure element says the annotation is, for readers that take a description from
+    /// the tag rather than from /Contents. A highlight with no note of its own is described by the
+    /// text it covers, because "highlight" alone tells a listener nothing.
+    /// </summary>
+    private static string? DescribeForTag(AnnotationElement annotation)
+    {
+        if (annotation.Contents.Trim() is { Length: > 0 } contents)
+            return contents;
+
+        return annotation.AnchoredText is { Length: > 0 } anchored
+            ? $"Marked: {Shorten(anchored)}"
+            : null;
+    }
 
     #endregion
 }

@@ -182,6 +182,9 @@ public abstract class DocumentSaverBase : IDocumentSaver
                 warnings.Add("The document's digital signature is no longer valid.");
         }
 
+        // Reset per save, so a deletion in one save cannot excuse a loss in the next.
+        StructureElementsRemovedByWrite = 0;
+
         string temporaryPath = BuildTemporaryPath(targetPath);
 
         // Taken before anything is written, and compared against the result. This is what catches
@@ -228,10 +231,14 @@ public abstract class DocumentSaverBase : IDocumentSaver
                     // declared here or every deleted comment would roll the whole save back.
                     int annotationChange = CountAnnotationChange(document);
 
+                    // A deleted comment takes its /Annot tag with it, which is a structure element
+                    // going. Undeclared, that reads as the one failure this whole guard exists to
+                    // catch, and would roll back every other change in the same save.
                     var losses = after.FindLossesSince(
                         before,
                         expectedFieldChange: -consumed,
-                        expectedAnnotationChange: -consumed + annotationChange);
+                        expectedAnnotationChange: -consumed + annotationChange,
+                        expectedStructureChange: -StructureElementsRemovedByWrite);
 
                     // The structure loss the user explicitly agreed to is not reported again as a
                     // fault; anything else is, and rolls the save back.
@@ -345,6 +352,16 @@ public abstract class DocumentSaverBase : IDocumentSaver
     /// </summary>
     private static int CountAnnotationChange(PdfDocumentModel document) =>
         document.Annotations.Count(a => a.IsUnsaved) - document.DeletedAnnotations.Count;
+
+    /// <summary>
+    /// How many structure elements this save deliberately removed, set by the write step.
+    ///
+    /// Exact, not estimated. It is handed to the loss check as "I meant to remove this many tags",
+    /// and that is the one number in this class it would be dangerous to guess: too low refuses a
+    /// legitimate save, too high excuses the real loss of somebody's headings. Only a deleted
+    /// comment whose tag was actually found and removed counts.
+    /// </summary>
+    protected int StructureElementsRemovedByWrite { get; set; }
 
     /// <summary>
     /// Checks a path can be written before any work is done, so that a locked file is reported
@@ -510,7 +527,7 @@ public sealed class PdfSharpDocumentSaver : DocumentSaverBase
     /// Runs before the metadata so a failure here joins the other write warnings rather than
     /// arriving after the document has been declared saved.
     /// </summary>
-    private static void WriteAnnotations(
+    private void WriteAnnotations(
         PdfDocumentModel document, SharpDocument sharp, List<string> warnings)
     {
         bool anythingToDo = document.DeletedAnnotations.Count > 0
@@ -520,6 +537,9 @@ public sealed class PdfSharpDocumentSaver : DocumentSaverBase
             return;
 
         var summary = new AnnotationWriter(sharp, warnings).Write(document);
+
+        // Reported to the base class so its loss check knows this reduction was asked for.
+        StructureElementsRemovedByWrite += summary.TagsRemoved;
 
         if (!summary.DidAnything)
             warnings.Add("The comments could not be written to the file.");

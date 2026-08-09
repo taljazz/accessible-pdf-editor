@@ -217,11 +217,21 @@ public sealed record DocumentFingerprint
     /// How many annotations the user deliberately added or removed. A form field's widget IS an
     /// annotation, so consuming a signature field removes one of each.
     /// </param>
+    /// <param name="expectedStructureChange">
+    /// How many structure elements the user deliberately added or removed.
+    ///
+    /// Kept deliberately hard to reach for: losing accessibility tags is the failure this whole
+    /// class exists to catch, so a caller passing a negative number here is asserting that it MEANT
+    /// to remove a tag. Deleting a tagged comment is the case that needs it — the comment's /Annot
+    /// element goes with it, and without declaring that, deleting a comment would roll back every
+    /// other change in the same save.
+    /// </param>
     public IReadOnlyList<string> FindLossesSince(
         DocumentFingerprint original,
         int expectedPageChange = 0,
         int expectedFieldChange = 0,
-        int expectedAnnotationChange = 0)
+        int expectedAnnotationChange = 0,
+        int expectedStructureChange = 0)
     {
         var losses = new List<string>();
 
@@ -238,9 +248,11 @@ public sealed record DocumentFingerprint
         if (PageCount < expectedPages)
             losses.Add($"{expectedPages - PageCount} pages");
 
-        if (StructureElementCount < original.StructureElementCount)
+        int expectedStructure = original.StructureElementCount + expectedStructureChange;
+
+        if (StructureElementCount < expectedStructure)
         {
-            int lost = original.StructureElementCount - StructureElementCount;
+            int lost = expectedStructure - StructureElementCount;
 
             // Named as what they are to the user, not as what they are in the file. "Accessibility
             // tags" is the thing they would miss; "StructElem objects" is not.
