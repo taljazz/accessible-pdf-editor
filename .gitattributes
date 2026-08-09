@@ -1,0 +1,18 @@
+# Normalise line endings so a checkout on another machine does not show every file as modified.
+* text=auto
+
+*.cs       text diff=csharp
+*.csproj   text
+*.slnx     text
+*.md       text
+*.json     text
+*.html     text
+
+# Binary. Listing them explicitly stops Git from trying to normalise line endings inside them,
+# which would corrupt the native libraries and produce a program that silently loses its speech.
+*.pdf      binary
+*.dll      binary
+*.png      binary
+*.jpg      binary
+*.gif      binary
+*.ico      binary

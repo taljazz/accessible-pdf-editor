@@ -1,0 +1,90 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+                <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>AccessiblePdfEditor</RootNamespace>
+    <AssemblyName>AccessiblePdfEditor</AssemblyName>
+    <!--
+      Tolk.dll and the screen-reader client DLLs are 64-bit only, so the process must be too.
+      A 32-bit host would load none of them and the editor would fall silent.
+    -->
+    <PlatformTarget>x64</PlatformTarget>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!--
+      Required by [LibraryImport]. The source-generated marshalling for the Tolk entry points is
+      what needs it; no hand-written unsafe code exists in this project.
+    -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Reading side: text with positions, the tag tree, outlines, annotations, metadata. -->
+    <PackageReference Include="PdfPig" Version="0.1.15" />
+    <!--
+      Page rendering, for the visual view alongside the text. Supplementary, never the primary
+      surface: a picture of a page gives assistive technology nothing at all.
+    -->
+    <PackageReference Include="PdfPig.Rendering.Skia" Version="0.1.15.4" />
+    <!--
+      The browse view. Hosting the document as a web page is what lets a screen reader read it in
+      BROWSE MODE — quick navigation, table navigation, the element list, Say All — using the
+      user's own commands instead of ones this program invented. NVDA creates browse mode for any
+      read-only document, with no check on which application is hosting it
+      (source/NVDAObjects/IAccessible/ia2Web.py, Document._get_shouldCreateTreeInterceptor).
+
+      The runtime it needs ships with Windows 11 and with Edge, but not with this program, and it
+      can be absent on a locked-down machine. BrowseModeView therefore checks for it and says so
+      plainly rather than failing; the text view needs nothing extra and remains complete.
+    -->
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3485.44" />
+    <!-- Writing side: AcroForm values, structure tags, annotations, page operations, saving. -->
+    <PackageReference Include="PDFsharp" Version="6.2.4" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.0" />
+    <!-- OpenAL, for short overlapping earcons that must not queue behind one another. -->
+    <PackageReference Include="OpenTK" Version="4.9.4" />
+  </ItemGroup>
+
+  <!--
+    The WebView2 package ships a WinForms wrapper and a WPF one. Only the WinForms wrapper is used
+    here, and the WPF one drags in a WindowsBase that conflicts with the framework's own — an
+    MSB3277 warning on every build for an assembly this program never loads. Dropping the reference
+    resolves it at the source rather than silencing the warning.
+  -->
+  <Target Name="RemoveUnusedWebView2Wpf" BeforeTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <Reference Remove="@(Reference)"
+                 Condition="'%(FileName)' == 'Microsoft.Web.WebView2.Wpf'" />
+    </ItemGroup>
+  </Target>
+
+  <ItemGroup>
+    <!--
+      The test suite constructs field and element states that only the loader is allowed to set in
+      production. Granting it access keeps those setters internal — so nothing in the application
+      can bypass the edit commands — while still letting tests build the states worth asserting on.
+    -->
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
+      <_Parameter1>AccessiblePdfEditor.Tests</_Parameter1>
+    </AssemblyAttribute>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Screen-reader bridge. Tolk routes to whichever reader is running and falls back to SAPI when
+      none is. Only the NVDA and SAPI clients ship here; JAWS, Dolphin and ZoomText are reached
+      through the normal UI Automation surface instead, which is why every control in this app
+      carries a real accessible name, role and value rather than relying on spoken output alone.
+    -->
+    <None Update="Tolk.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="TolkDotNet.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="nvdaControllerClient64.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="SAAPI64.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="OpenAL32.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

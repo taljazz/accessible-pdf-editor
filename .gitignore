@@ -1,0 +1,43 @@
+# Build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+artifacts/
+
+# Visual Studio / Rider / VS Code local state
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.DotSettings.user
+
+# NuGet
+*.nupkg
+packages/
+!packages/build/
+
+# The WebView2 user-data folder, if anyone points it at the project directory rather than
+# %LOCALAPPDATA%. It is a browser profile: large, machine-specific, and never source.
+WebView2/
+*.WebView2/
+
+# Test and diagnostic leftovers
+TestResults/
+*.trx
+*.coverage
+*.log
+
+# OS
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# Saved copies the editor writes next to a document while testing. The originals are kept;
+# these are the verified rewrites, and they should never be mistaken for source.
+*.backup.pdf
+*~.pdf

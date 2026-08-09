@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AccessiblePdfEditor/AccessiblePdfEditor.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AccessiblePdfEditor.Tests/AccessiblePdfEditor.Tests.csproj" />
+  </Folder>
+</Solution>
