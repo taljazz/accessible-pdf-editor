@@ -527,7 +527,7 @@ finds it and its cells announce with their headers.
 ## Getting the app
 
 A ready-to-run build is on the [releases page](https://github.com/taljazz/accessible-pdf-editor/releases):
-**`AccessiblePdfEditor-v1.0.1-win-x64.zip`**, about 56 MB. Unzip it anywhere and run the exe inside.
+**`AccessiblePdfEditor-v1.2.0-win-x64.zip`**, about 56 MB. Unzip it anywhere and run the exe inside.
 Nothing to install — it carries its own copy of .NET and of the screen-reader bridge.
 
 **Keep the folder together.** The DLLs beside the exe are the screen-reader bridge (Tolk, and the
@@ -540,7 +540,7 @@ download against the SHA-256 published with the release before running it, and u
 before extracting — otherwise the extracted DLLs inherit the mark-of-the-web and may refuse to load.
 
 ```powershell
-Get-FileHash AccessiblePdfEditor-v1.0.1-win-x64.zip -Algorithm SHA256
+Get-FileHash AccessiblePdfEditor-v1.2.0-win-x64.zip -Algorithm SHA256
 ```
 
 The one thing not bundled is the **Microsoft Edge WebView2 runtime**, which the browse view needs.
