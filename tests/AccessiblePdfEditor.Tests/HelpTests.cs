@@ -202,7 +202,7 @@ internal static class HelpTests
                 "Ctrl+Shift+P", "Ctrl+Shift+V", "Ctrl+Shift+G",
                 "Ctrl+plus", "Ctrl+minus", "Ctrl+Shift+R", "Ctrl+Shift+B", "F6", "Ctrl+Shift+T",
                 "Ctrl+PageDown", "Ctrl+PageUp",
-                "Ctrl+Shift+M", "Ctrl+Shift+K", "F2", "Ctrl+Shift+Y", "Ctrl+Delete",
+                "Ctrl+Shift+M", "Ctrl+Shift+K", "F2", "Ctrl+Shift+Y", "Ctrl+Delete", "Ctrl+Shift+N",
                 "F1", "Shift+F1", "Escape",
             ];
 

@@ -5,6 +5,7 @@ using AccessiblePdfEditor.Editing;
 using AccessiblePdfEditor.Model;
 using AccessiblePdfEditor.Model.Elements;
 using AccessiblePdfEditor.Model.Forms;
+using AccessiblePdfEditor.Persistence;
 using AccessiblePdfEditor.Navigation;
 
 namespace AccessiblePdfEditor.UI;
@@ -454,6 +455,108 @@ public sealed partial class MainForm
     #endregion
 
     #region Repairs invoked directly from the menu
+
+    /// <summary>
+    /// Writes everything this program worked out about the document's structure into a new copy of
+    /// the file, so that other readers get it too.
+    ///
+    /// The biggest repair the editor can make, and the reason for most of the rest. An untagged PDF
+    /// has text on a page and nothing saying which line is a heading; this program infers all of it
+    /// from layout so the user can navigate — but that inference lives in memory and dies when the
+    /// document closes. Writing it into the file is what makes the document accessible in Acrobat,
+    /// in Edge, to a colleague's screen reader, and to a checker.
+    ///
+    /// Always a copy. It rewrites every page's content stream to add marked content, and while that
+    /// is tested not to alter the drawing, "tested" is not "your original is untouched" — and the
+    /// person running it cannot look at the result to see for themselves.
+    /// </summary>
+    private void SaveTaggedCopy()
+    {
+        if (_document is null)
+        {
+            AnnounceNoDocument();
+            return;
+        }
+
+        int taggable = _document.ReadingOrder.Count(e =>
+            !e.Bounds.IsEmpty && StructureTreeBuilder.TagFor(e) is not null);
+
+        if (taggable == 0)
+        {
+            Play(AudioCue.Boundary);
+            Announce(
+                "Nothing in this document could be tagged. That usually means the pages are scanned " +
+                "images with no text behind them, which needs OCR before anything here can help.",
+                AnnouncementPriority.Assertive);
+
+            return;
+        }
+
+        if (_document.TaggedStatus == TaggedStatus.FullyTagged)
+        {
+            if (!Confirm(
+                    "This document already carries its own structure tags, and they are usually " +
+                    "better than anything worked out from the layout — they came from whoever made " +
+                    "the document. Tagging it again would replace them with this program's guesses. " +
+                    "Are you sure?",
+                    "Already tagged"))
+            {
+                Announce("Left as it is.", AnnouncementPriority.Assertive);
+                return;
+            }
+        }
+
+        using var chooser = new SaveFileDialog
+        {
+            Title = "Save the tagged copy as",
+            Filter = "PDF documents (*.pdf)|*.pdf",
+            FileName = Path.GetFileNameWithoutExtension(_document.FilePath) + " (tagged).pdf",
+            InitialDirectory = Path.GetDirectoryName(_document.FilePath),
+        };
+
+        if (chooser.ShowDialog(this) != DialogResult.OK)
+        {
+            Announce("Nothing saved.", AnnouncementPriority.Assertive);
+            return;
+        }
+
+        Play(AudioCue.WorkStarted);
+        Cursor = Cursors.WaitCursor;
+
+        SaveResult result;
+
+        try
+        {
+            result = _saver.Save(_document, new SaveOptions
+            {
+                TargetPath = chooser.FileName,
+                AddStructureTags = true,
+                CreateBackup = false,
+                VerifyAfterWriting = _settings.VerifySaves,
+            });
+        }
+        finally
+        {
+            Cursor = Cursors.Default;
+        }
+
+        Play(result.IsSuccess ? AudioCue.Saved : AudioCue.Error);
+        Speech.BeginNewAnnouncement();
+
+        var parts = new List<string>(3) { result.BuildAnnouncement() };
+
+        if (result.IsSuccess)
+        {
+            // What the tagging actually achieved, which is a different claim from "the file was
+            // written" and is the one the user cares about.
+            if (_saver.LastStructureTreeResult is { } tagging)
+                parts.Add(tagging.Describe());
+
+            parts.Add("Your original is unchanged.");
+        }
+
+        Announce(string.Join(" ", parts), AnnouncementPriority.Assertive);
+    }
 
     private void DescribeCurrentFigure()
     {

@@ -312,6 +312,7 @@ public sealed partial class MainForm : AccessibleFormBase
             (null, null),
             ("&Clear this form…", (_, _) => ResetForm()),
             ("Save a f&lattened copy…", (_, _) => SaveFlattenedCopy()),
+            ("Save a &tagged copy…\tCtrl+Shift+N", (_, _) => SaveTaggedCopy()),
             (null, null),
             ("List &comments…\tCtrl+M", (_, _) => ShowAnnotations()),
             (null, null),
@@ -480,6 +481,7 @@ public sealed partial class MainForm : AccessibleFormBase
 
             // Writing comments. Ctrl+M lists them, so Ctrl+Shift+M writes one — the same
             // relationship the other list-and-act pairs use.
+            case Keys.Control | Keys.Shift | Keys.N: SaveTaggedCopy(); return true;
             case Keys.Control | Keys.Shift | Keys.M: AddCommentHere(); return true;
             case Keys.Control | Keys.Shift | Keys.K: AddCommentHere(AnnotationKind.Highlight); return true;
             case Keys.F2: EditCommentHere(); return true;
@@ -751,6 +753,11 @@ public sealed partial class MainForm : AccessibleFormBase
         Ctrl+Shift+F go through the problems one at a time, with the repair
                      offered at each
         D            jump to the next problem
+
+        Ctrl+Shift+N save a TAGGED COPY — writes everything this program worked
+                     out about the document's structure into a new file, so
+                     other readers get it too. The biggest repair available,
+                     and always a copy: your original is never touched.
 
         Ctrl+Shift+I describe the image you are on
         Ctrl+Shift+L give the form field you are on a name

@@ -41,19 +41,45 @@ namespace AccessiblePdfEditor.Persistence;
 //  the only difference is the marks around it.
 // =====================================================================================
 
+#region ContentTag — what a piece of text should be marked as
+
+/// <summary>
+/// The tag to write, and which element it belongs to.
+///
+/// The element key is not decoration. Two adjacent paragraphs are both tagged "P", and comparing
+/// tag names alone would run them together into a single mark — so the document would have one
+/// paragraph where it should have two, and a reader moving by paragraph would skip the boundary.
+/// The key is what makes "same tag" and "same thing" different questions.
+/// </summary>
+public readonly record struct ContentTag(string Name, int ElementKey);
+
+#endregion
+
 #region MarkedRun — one stretch of content that became one tag
 
 /// <summary>A run of text that was wrapped in one marked-content sequence.</summary>
-public readonly record struct MarkedRun(int MarkedContentId, double X, double Y, string Tag);
+public readonly record struct MarkedRun(int MarkedContentId, double X, double Y, ContentTag Tag);
 
 #endregion
 
 #region TaggedContent
 
 /// <summary>The rewritten content stream, and where each mark ended up.</summary>
-public sealed record TaggedContent(byte[] Content, IReadOnlyList<MarkedRun> Runs)
+public sealed record TaggedContent(byte[] Content, IReadOnlyList<MarkedRun> Runs, int TextOperatorCount)
 {
     public bool MarkedAnything => Runs.Count > 0;
+
+    /// <summary>
+    /// The share of the page's text that ended up inside a tag.
+    ///
+    /// The number that decides whether the document may claim to be tagged at all. Marking a third
+    /// of a page and then setting /MarkInfo /Marked true produces a file that says it is accessible
+    /// and is not, which readers and checkers both believe.
+    /// </summary>
+    public double Coverage => TextOperatorCount == 0 ? 1.0 : (double)MarkedOperators / TextOperatorCount;
+
+    /// <summary>How many show operators fell inside a tag.</summary>
+    public int MarkedOperators { get; init; }
 }
 
 #endregion
@@ -78,7 +104,7 @@ internal static class ContentStreamTagger
     /// to use. Returning null leaves that text unmarked, which is correct for page furniture.
     /// </param>
     public static TaggedContent Tag(
-        byte[] content, int firstMarkedContentId, Func<double, double, string?> classify)
+        byte[] content, int firstMarkedContentId, Func<double, double, ContentTag?> classify)
     {
         ArgumentNullException.ThrowIfNull(content);
         ArgumentNullException.ThrowIfNull(classify);
@@ -90,8 +116,10 @@ internal static class ContentStreamTagger
         var state = new TextState();
         int copiedTo = 0;
         int nextId = firstMarkedContentId;
+        int shows = 0;
+        int marked = 0;
 
-        string? openTag = null;
+        ContentTag? openTag = null;
 
         while (reader.ReadOperator() is { } op)
         {
@@ -100,9 +128,14 @@ internal static class ContentStreamTagger
             if (!IsShowingText(op.Name))
                 continue;
 
+            shows++;
+
             // Where this run of text starts, in page space.
             var (x, y) = state.CurrentPoint();
-            string? tag = classify(x, y);
+            ContentTag? tag = classify(x, y);
+
+            if (tag is not null)
+                marked++;
 
             if (tag == openTag)
                 continue;
@@ -117,10 +150,10 @@ internal static class ContentStreamTagger
             if (openTag is not null)
                 Write(output, "EMC\n");
 
-            if (tag is not null)
+            if (tag is { } opening)
             {
-                Write(output, $"/{tag} <</MCID {nextId.ToString(CultureInfo.InvariantCulture)}>> BDC\n");
-                runs.Add(new MarkedRun(nextId, x, y, tag));
+                Write(output, $"/{opening.Name} <</MCID {nextId.ToString(CultureInfo.InvariantCulture)}>> BDC\n");
+                runs.Add(new MarkedRun(nextId, x, y, opening));
                 nextId++;
             }
 
@@ -134,7 +167,7 @@ internal static class ContentStreamTagger
         if (openTag is not null)
             Write(output, "\nEMC\n");
 
-        return new TaggedContent(output.ToArray(), runs);
+        return new TaggedContent(output.ToArray(), runs, shows) { MarkedOperators = marked };
     }
 
     private static bool IsShowingText(string name) =>
@@ -269,6 +302,17 @@ internal static class ContentStreamTagger
         private int _position;
         private int _operandStart;
 
+        /// <summary>
+        /// Whether the start of the current operator's operands has been noted yet.
+        ///
+        /// This flag is the whole of a bug that silently destroyed text. The start used to be
+        /// re-noted on any token while no NUMBERS had accumulated — so for an operator whose
+        /// operand is a string, such as &lt;0041&gt; Tj, it ended up pointing at the Tj itself. A
+        /// mark inserted there lands BETWEEN the string and the operator that shows it, leaving Tj
+        /// with nothing to draw. The page still opened, and a third of its text was gone.
+        /// </summary>
+        private bool _haveOperandStart;
+
         public ContentOperator? ReadOperator()
         {
             while (_position < content.Length)
@@ -278,8 +322,11 @@ internal static class ContentStreamTagger
                 if (_position >= content.Length)
                     return null;
 
-                if (_numbers.Count == 0)
+                if (!_haveOperandStart)
+                {
                     _operandStart = _position;
+                    _haveOperandStart = true;
+                }
 
                 byte b = content[_position];
 
@@ -322,7 +369,11 @@ internal static class ContentStreamTagger
             return null;
         }
 
-        private void Reset() => _numbers.Clear();
+        private void Reset()
+        {
+            _numbers.Clear();
+            _haveOperandStart = false;
+        }
 
         private byte Peek(int ahead) =>
             _position + ahead < content.Length ? content[_position + ahead] : (byte)0;

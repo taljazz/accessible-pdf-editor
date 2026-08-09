@@ -1,5 +1,6 @@
 using System.Text;
 using AccessiblePdfEditor.Ingestion;
+using AccessiblePdfEditor.Model;
 using AccessiblePdfEditor.Model.Elements;
 using AccessiblePdfEditor.Persistence;
 using PdfSharp.Pdf;
@@ -33,6 +34,7 @@ internal static class ContentTaggingTests
         RegisterReading(t);
         RegisterPositions(t);
         RegisterSafety(t);
+        RegisterWholeDocument(t);
     }
 
     #region Reading operators
@@ -46,7 +48,7 @@ internal static class ContentTaggingTests
             byte[] content = Encoding.Latin1.GetBytes(
                 "BT /F1 12 Tf 72 700 Td (Hello) Tj ET");
 
-            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => "P");
+            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => new ContentTag("P", 1));
 
             t.AreEqual(1, tagged.Runs.Count, "the one show operator should be marked");
             t.AreEqual(72.0, tagged.Runs[0].X, "at the x the operators put it");
@@ -56,14 +58,36 @@ internal static class ContentTaggingTests
         t.Test("marks are opened and closed around the text", () =>
         {
             byte[] content = Encoding.Latin1.GetBytes("BT 72 700 Td (Hello) Tj ET");
-            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => "P");
+            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => new ContentTag("P", 1));
 
             string result = Encoding.Latin1.GetString(tagged.Content);
 
             t.Says(result, "/P <</MCID 0>> BDC");
             t.Says(result, "EMC");
-            t.IsTrue(result.IndexOf("BDC", StringComparison.Ordinal) < result.IndexOf("Tj", StringComparison.Ordinal),
-                "the mark must open before the text it covers");
+
+            // Before the OPERAND, not merely before the operator. This distinction is not
+            // pedantry: a mark inserted between (Hello) and Tj leaves Tj with nothing to show, and
+            // the text silently disappears from the page while the file still opens. The weaker
+            // form of this assertion — that BDC precedes Tj — passed while exactly that was
+            // happening, and a third of the sample's text was being destroyed.
+            t.IsTrue(result.IndexOf("BDC", StringComparison.Ordinal) < result.IndexOf("(Hello)", StringComparison.Ordinal),
+                "the mark must open before the text's own operand, not between it and the operator");
+        });
+
+        t.Test("a string operand is not separated from its operator", () =>
+        {
+            // The same fault as above, checked directly on the shape of the output rather than on
+            // an index, because this is the one that costs a document its text.
+            byte[] content = Encoding.Latin1.GetBytes("BT 72 700 Td <00410042> Tj ET");
+            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => new ContentTag("P", 1));
+
+            string result = Encoding.Latin1.GetString(tagged.Content);
+            int operand = result.IndexOf("<00410042>", StringComparison.Ordinal);
+            int show = result.IndexOf("Tj", StringComparison.Ordinal);
+
+            t.IsTrue(operand >= 0 && show > operand, "the operand should still precede its operator");
+            t.IsFalse(result[operand..show].Contains("BDC", StringComparison.Ordinal),
+                "nothing may be inserted between an operand and the operator that consumes it");
         });
 
         t.Test("text the classifier rejects is left unmarked", () =>
@@ -71,7 +95,7 @@ internal static class ContentTaggingTests
             // Page furniture — running heads, folios — is an artifact, not content, and marking it
             // would put a page number into the reading order between two sentences.
             byte[] content = Encoding.Latin1.GetBytes("BT 72 700 Td (Hello) Tj ET");
-            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => null);
+            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => (ContentTag?)null);
 
             t.AreEqual(0, tagged.Runs.Count, "nothing should be marked");
             t.IsFalse(Encoding.Latin1.GetString(tagged.Content).Contains("BDC", StringComparison.Ordinal),
@@ -85,9 +109,26 @@ internal static class ContentTaggingTests
             byte[] content = Encoding.Latin1.GetBytes(
                 "BT 72 700 Td (One) Tj (Two) Tj (Three) Tj ET");
 
-            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => "P");
+            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => new ContentTag("P", 1));
 
             t.AreEqual(1, tagged.Runs.Count, "three shows in one paragraph should be one mark");
+        });
+
+        t.Test("two different paragraphs are not run together", () =>
+        {
+            // The reason the classifier reports an element key rather than just a tag name. Both of
+            // these are "P", and comparing names alone would fuse them into one paragraph — so the
+            // document would have one where it should have two, and a reader moving by paragraph
+            // would sail straight past the boundary.
+            byte[] content = Encoding.Latin1.GetBytes(
+                "BT 72 700 Td (First para) Tj 0 -40 Td (Second para) Tj ET");
+
+            int call = 0;
+            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => new ContentTag("P", ++call));
+
+            t.AreEqual(2, tagged.Runs.Count, "two paragraphs should be two marks");
+            t.IsTrue(tagged.Runs[0].MarkedContentId != tagged.Runs[1].MarkedContentId,
+                "and they must have different identifiers");
         });
 
         t.Test("identifiers continue from where the caller says", () =>
@@ -96,7 +137,7 @@ internal static class ContentTaggingTests
             byte[] content = Encoding.Latin1.GetBytes("BT 72 700 Td (A) Tj 0 -20 Td (B) Tj ET");
 
             int call = 0;
-            var tagged = ContentStreamTagger.Tag(content, 7, (_, _) => call++ == 0 ? "H1" : "P");
+            var tagged = ContentStreamTagger.Tag(content, 7, (_, _) => new ContentTag(call++ == 0 ? "H1" : "P", call));
 
             t.AreEqual(7, tagged.Runs[0].MarkedContentId, "the first mark takes the given number");
             t.IsTrue(tagged.Runs.Count > 1 && tagged.Runs[1].MarkedContentId == 8, "and the next follows it");
@@ -109,7 +150,7 @@ internal static class ContentTaggingTests
             byte[] content = Encoding.Latin1.GetBytes(
                 "BT 72 700 Td (ET Tj BT nonsense) Tj ET");
 
-            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => "P");
+            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => new ContentTag("P", 1));
 
             t.AreEqual(1, tagged.Runs.Count, "there is one show operator, whatever the string says");
         });
@@ -132,7 +173,7 @@ internal static class ContentTaggingTests
                 "BT 60 772 Td (A) Tj 0 -35 Td (B) Tj 0 -20 Td (C) Tj ET");
 
             var seen = new List<(double X, double Y)>();
-            ContentStreamTagger.Tag(content, 0, (x, y) => { seen.Add((x, y)); return seen.Count.ToString(); });
+            ContentStreamTagger.Tag(content, 0, (x, y) => { seen.Add((x, y)); return new ContentTag("P", seen.Count); });
 
             t.AreEqual(3, seen.Count, "three positions");
             t.AreEqual(772.0, seen[0].Y, "the first line");
@@ -146,7 +187,7 @@ internal static class ContentTaggingTests
                 "q 1 0 0 1 100 50 cm BT 10 10 Td (A) Tj ET Q");
 
             var seen = new List<(double X, double Y)>();
-            ContentStreamTagger.Tag(content, 0, (x, y) => { seen.Add((x, y)); return "P"; });
+            ContentStreamTagger.Tag(content, 0, (x, y) => { seen.Add((x, y)); return new ContentTag("P", 1); });
 
             t.AreEqual(1, seen.Count, "one position");
             t.AreEqual(110.0, seen[0].X, "translated by the matrix");
@@ -159,7 +200,7 @@ internal static class ContentTaggingTests
                 "q 1 0 0 1 500 500 cm Q BT 72 700 Td (A) Tj ET");
 
             var seen = new List<(double X, double Y)>();
-            ContentStreamTagger.Tag(content, 0, (x, y) => { seen.Add((x, y)); return "P"; });
+            ContentStreamTagger.Tag(content, 0, (x, y) => { seen.Add((x, y)); return new ContentTag("P", 1); });
 
             t.AreEqual(72.0, seen[0].X, "the translation was undone by Q");
             t.AreEqual(700.0, seen[0].Y, "in both directions");
@@ -191,7 +232,7 @@ internal static class ContentTaggingTests
             byte[] content = ReadContent(sharp.Pages[0]);
 
             var positions = new List<(double X, double Y)>();
-            ContentStreamTagger.Tag(content, 0, (x, y) => { positions.Add((x, y)); return "P"; });
+            ContentStreamTagger.Tag(content, 0, (x, y) => { positions.Add((x, y)); return new ContentTag("P", 1); });
 
             t.IsTrue(positions.Count > 0, "the tagger should have found text to mark");
 
@@ -235,7 +276,7 @@ internal static class ContentTaggingTests
                 "BT /F1 12 Tf 72 700 Td (Hello) Tj 0 -14 Td (World) Tj ET");
 
             int call = 0;
-            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => call++ == 0 ? "H1" : "P");
+            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => new ContentTag(call++ == 0 ? "H1" : "P", call));
 
             string result = Encoding.Latin1.GetString(tagged.Content);
 
@@ -255,7 +296,7 @@ internal static class ContentTaggingTests
             // An unclosed BDC swallows everything drawn after it, which in a multi-stream page
             // means the rest of the document's content joins the wrong tag.
             byte[] content = Encoding.Latin1.GetBytes("BT 72 700 Td (A) Tj ET");
-            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => "P");
+            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => new ContentTag("P", 1));
 
             string result = Encoding.Latin1.GetString(tagged.Content);
 
@@ -266,12 +307,204 @@ internal static class ContentTaggingTests
         t.Test("a stream with no text is returned unchanged", () =>
         {
             byte[] content = Encoding.Latin1.GetBytes("q 1 0 0 1 0 0 cm 100 100 m 200 200 l S Q");
-            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => "P");
+            var tagged = ContentStreamTagger.Tag(content, 0, (_, _) => new ContentTag("P", 1));
 
             t.IsFalse(tagged.MarkedAnything, "there is nothing to mark");
             t.AreEqual(Encoding.Latin1.GetString(content), Encoding.Latin1.GetString(tagged.Content),
                 "and the drawing should be untouched");
         });
+    }
+
+    #endregion
+
+    #region Tagging a whole document
+
+    private static void RegisterWholeDocument(TestRunner t)
+    {
+        t.Group("content tagging — a whole document");
+
+        t.Test("an untagged document comes back tagged, with its text intact", () =>
+        {
+            // The end of the whole chain: layout analysis, content marking, structure tree. What
+            // makes it worth asserting on the FILE rather than on the objects is that every
+            // intermediate step can look right while the result is a document no other reader can
+            // use — which is the state this program exists to get people out of.
+            WithSampleCopy(t, (document, path, saver) =>
+            {
+                t.IsTrue(document.TaggedStatus is not TaggedStatus.FullyTagged,
+                    "the sample is supposed to start untagged");
+
+                string textBefore = AllText(path);
+
+                var result = saver.Save(document, new SaveOptions
+                {
+                    TargetPath = path,
+                    AddStructureTags = true,
+                    CreateBackup = false,
+                });
+
+                t.IsTrue(result.Outcome is SaveOutcome.Saved, $"the save should succeed: {result.Message}");
+
+                var tagging = saver.LastStructureTreeResult;
+                t.IsNotNull(tagging, "the save should report what the tagging achieved");
+                t.IsTrue(tagging!.Value.ElementsTagged > 0, "it should have tagged something");
+
+                // The text is the document. Marked content is inserted around the drawing
+                // operators, never into them, so not one character may move.
+                t.AreEqual(textBefore, AllText(path), "the document's text must be unchanged");
+
+                using var sharp = PdfReader.Open(path, PdfDocumentOpenMode.Modify);
+                var root = sharp.Internals.Catalog.Elements.GetDictionary("/StructTreeRoot");
+
+                t.IsNotNull(root, "the file should now carry a structure tree");
+                t.IsTrue(root!.Elements.GetArray("/K")?.Elements.Count > 0, "with elements in it");
+                t.IsNotNull(root.Elements.GetDictionary("/ParentTree"),
+                    "and a parent tree, without which every tag is unreachable");
+            });
+        });
+
+        t.Test("the reloaded document reports itself as tagged", () =>
+        {
+            // Read back through the ordinary loader, which is what the user's next session does.
+            WithSampleCopy(t, (document, path, saver) =>
+            {
+                saver.Save(document, new SaveOptions
+                {
+                    TargetPath = path, AddStructureTags = true, CreateBackup = false,
+                });
+
+                var reloaded = new PdfPigDocumentLoader().Load(path).Document;
+
+                t.IsNotNull(reloaded, "the tagged file should re-open");
+                t.IsTrue(reloaded!.TaggedStatus is TaggedStatus.FullyTagged or TaggedStatus.PartiallyTagged,
+                    $"it should read back as tagged, but was {reloaded.TaggedStatus}");
+            });
+        });
+
+        t.Test("headings are written as headings, not as paragraphs", () =>
+        {
+            // The single most valuable thing in the tree. Everything else could be right and the
+            // document would still be unnavigable if every block came out as /P.
+            WithSampleCopy(t, (document, path, saver) =>
+            {
+                saver.Save(document, new SaveOptions
+                {
+                    TargetPath = path, AddStructureTags = true, CreateBackup = false,
+                });
+
+                using var sharp = PdfReader.Open(path, PdfDocumentOpenMode.Modify);
+                var root = sharp.Internals.Catalog.Elements.GetDictionary("/StructTreeRoot")!;
+
+                var types = new List<string>();
+                CollectTypes(root.Elements.GetArray("/K"), types, 0);
+
+                t.IsTrue(types.Any(s => s.StartsWith("/H", StringComparison.Ordinal)),
+                    $"there should be heading elements, but found: {string.Join(", ", types.Distinct())}");
+            });
+        });
+
+        t.Test("a document tagged twice does not accumulate duplicate marks", () =>
+        {
+            // Running the repair again is a thing people do. Each run rebuilds the tree from
+            // scratch, so the second must not leave the first run's marks orphaned inside it.
+            WithSampleCopy(t, (document, path, saver) =>
+            {
+                var options = new SaveOptions
+                {
+                    TargetPath = path, AddStructureTags = true, CreateBackup = false,
+                };
+
+                saver.Save(document, options);
+                string textOnce = AllText(path);
+
+                var reloaded = new PdfPigDocumentLoader().Load(path).Document!;
+                var second = saver.Save(reloaded, options);
+
+                t.IsTrue(second.Outcome is SaveOutcome.Saved, $"the second save should succeed: {second.Message}");
+                t.AreEqual(textOnce, AllText(path), "and the text should still be identical");
+            });
+        });
+    }
+
+    private static void CollectTypes(PdfArray? kids, List<string> types, int depth)
+    {
+        if (kids is null || depth > 12)
+            return;
+
+        for (int i = 0; i < kids.Elements.Count; i++)
+        {
+            var element = kids.Elements[i] switch
+            {
+                PdfReference reference => reference.Value as PdfDictionary,
+                PdfDictionary dictionary => dictionary,
+                _ => null,
+            };
+
+            if (element is null)
+                continue;
+
+            if (element.Elements.GetName("/S") is { Length: > 0 } type)
+                types.Add(type);
+
+            CollectTypes(element.Elements.GetArray("/K"), types, depth + 1);
+        }
+    }
+
+    private static List<int> TextByPage(string path)
+    {
+        using var pig = UglyToad.PdfPig.PdfDocument.Open(path,
+            new UglyToad.PdfPig.ParsingOptions { UseLenientParsing = true, SkipMissingFonts = true });
+
+        var lengths = new List<int>();
+
+        for (int i = 1; i <= pig.NumberOfPages; i++)
+        {
+            try { lengths.Add(pig.GetPage(i).Text?.Length ?? 0); }
+            catch (Exception ex) { Console.WriteLine($"  page {i} threw {ex.GetType().Name}"); lengths.Add(-1); }
+        }
+
+        return lengths;
+    }
+
+    private static string AllText(string path)
+    {
+        using var pig = UglyToad.PdfPig.PdfDocument.Open(path,
+            new UglyToad.PdfPig.ParsingOptions { UseLenientParsing = true, SkipMissingFonts = true });
+
+        var builder = new StringBuilder();
+
+        for (int i = 1; i <= pig.NumberOfPages; i++)
+            builder.Append(pig.GetPage(i).Text);
+
+        return builder.ToString();
+    }
+
+    private static void WithSampleCopy(
+        TestRunner t, Action<Model.PdfDocumentModel, string, IDocumentSaver> test)
+    {
+        string sample = FindSample();
+
+        if (!File.Exists(sample))
+        {
+            t.IsTrue(true, "the sample is not present, so this test is skipped");
+            return;
+        }
+
+        string working = Path.Combine(Path.GetTempPath(), $"ape-tagging-{Guid.NewGuid():N}.pdf");
+        File.Copy(sample, working, overwrite: true);
+
+        try
+        {
+            var loaded = new PdfPigDocumentLoader().Load(working);
+            t.IsNotNull(loaded.Document, "the sample should load");
+
+            if (loaded.Document is not null)
+                test(loaded.Document, working, new PdfSharpDocumentSaver());
+        }
+        finally
+        {
+            try { if (File.Exists(working)) File.Delete(working); } catch { }
+        }
     }
 
     #endregion

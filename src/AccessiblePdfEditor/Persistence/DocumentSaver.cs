@@ -44,6 +44,16 @@ public sealed class SaveOptions
     public bool CreateBackup { get; init; } = true;
 
     /// <summary>
+    /// Whether to write a structure tree describing what the layout analysis found.
+    ///
+    /// This is the remediation the program exists for: it turns structure that was inferred in
+    /// memory into structure the file itself carries, so every other reader gets it too. It rewrites
+    /// every page's content stream to add marked content, so it is offered as a copy rather than
+    /// applied to somebody's original.
+    /// </summary>
+    public bool AddStructureTags { get; init; }
+
+    /// <summary>
     /// Whether to turn form fields into ordinary page content, making them permanently
     /// uneditable. Only ever done on an explicit, confirmed request.
     /// </summary>
@@ -108,6 +118,13 @@ public interface IDocumentSaver
     /// with an outcome and a message the user can be told.
     /// </summary>
     SaveResult Save(PdfDocumentModel document, SaveOptions options);
+
+    /// <summary>
+    /// What the last save's structure tagging achieved, or null when it was not asked for. Reported
+    /// separately from the save result because "the file was written" and "the document is now
+    /// tagged" are different claims and only one of them can be made on evidence.
+    /// </summary>
+    StructureTreeResult? LastStructureTreeResult { get; }
 }
 
 #endregion
@@ -138,7 +155,7 @@ public abstract class DocumentSaverBase : IDocumentSaver
         // whole file, and every rewrite carries the risk of losing something the writing library
         // did not understand. A save that had nothing to save and damaged the file anyway would be
         // the worst possible trade, so it simply does not happen.
-        if (overwritingOriginal && !HasAnythingToSave(document))
+        if (overwritingOriginal && !HasAnythingToSave(document, options))
         {
             return new SaveResult(SaveOutcome.NoChanges,
                 "There is nothing to save. No changes have been made, and your file has not been " +
@@ -184,6 +201,7 @@ public abstract class DocumentSaverBase : IDocumentSaver
 
         // Reset per save, so a deletion in one save cannot excuse a loss in the next.
         StructureElementsRemovedByWrite = 0;
+        LastStructureTreeResult = null;
 
         string temporaryPath = BuildTemporaryPath(targetPath);
 
@@ -234,11 +252,20 @@ public abstract class DocumentSaverBase : IDocumentSaver
                     // A deleted comment takes its /Annot tag with it, which is a structure element
                     // going. Undeclared, that reads as the one failure this whole guard exists to
                     // catch, and would roll back every other change in the same save.
+                    int structureChange = -StructureElementsRemovedByWrite;
+
+                    // Tagging replaces the structure tree outright, so the old one disappearing is
+                    // the operation rather than damage. The expected figure is what was ACTUALLY
+                    // written, not a blanket exemption: a run that claimed forty tags and produced
+                    // three is still caught.
+                    if (LastStructureTreeResult is { } tagging)
+                        structureChange = tagging.ElementsTagged - before.StructureElementCount;
+
                     var losses = after.FindLossesSince(
                         before,
                         expectedFieldChange: -consumed,
                         expectedAnnotationChange: -consumed + annotationChange,
-                        expectedStructureChange: -StructureElementsRemovedByWrite);
+                        expectedStructureChange: structureChange);
 
                     // The structure loss the user explicitly agreed to is not reported again as a
                     // fault; anything else is, and rolls the save back.
@@ -314,9 +341,16 @@ public abstract class DocumentSaverBase : IDocumentSaver
     /// here means either rewriting a file for no reason or — far worse — silently discarding
     /// someone's work because a flag went stale.
     /// </summary>
-    protected static bool HasAnythingToSave(PdfDocumentModel document)
+    protected static bool HasAnythingToSave(PdfDocumentModel document, SaveOptions options)
     {
         if (document.HasUnsavedChanges)
+            return true;
+
+        // Some work is asked for by the save itself rather than by an edit to the model. Flattening
+        // a form nobody has touched, or tagging a document nobody has changed, are both perfectly
+        // ordinary requests — and judging them by the model's changed flag would answer "there is
+        // nothing to save" to a user who had just explicitly asked for something.
+        if (options.FlattenForms || options.AddStructureTags)
             return true;
 
         foreach (var field in document.FormFields)
@@ -362,6 +396,12 @@ public abstract class DocumentSaverBase : IDocumentSaver
     /// comment whose tag was actually found and removed counts.
     /// </summary>
     protected int StructureElementsRemovedByWrite { get; set; }
+
+    /// <summary>
+    /// What the last save's tagging achieved, so the caller can say so. Null when the save did not
+    /// ask for tagging.
+    /// </summary>
+    public StructureTreeResult? LastStructureTreeResult { get; protected set; }
 
     /// <summary>
     /// Checks a path can be written before any work is done, so that a locked file is reported
@@ -499,6 +539,12 @@ public sealed class PdfSharpDocumentSaver : DocumentSaverBase
             WriteFormValues(document, sharp, warnings);
             WriteAnnotations(document, sharp, warnings);
             WriteMetadata(document, sharp, warnings);
+
+            // Last, because it rewrites every page's content stream and reads the element tree as
+            // it now stands. Doing it before the other writers would tag a document that then
+            // changed underneath the tags.
+            if (options.AddStructureTags)
+                LastStructureTreeResult = new StructureTreeBuilder(sharp, warnings).Build(document);
 
             if (options.FlattenForms)
                 FlattenForms(sharp, warnings);

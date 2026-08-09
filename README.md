@@ -20,7 +20,7 @@ This is stated first because being honest about it is part of the design.
 | **Read** | The document is presented to the screen reader as a real **document**, so it reads in browse mode and every command the user already knows works — quick navigation, `Ctrl+Alt+arrow` table navigation, the element list, Say All. Structure comes from the document's own tags where they exist, and is inferred from page layout — including tables — where they do not, which is most PDFs. |
 | **Fill in forms** | Every AcroForm field type, with per-type validation, spoken format guidance, and recovered labels for fields the document never named. Clear the whole form (undoable), or save a flattened copy. |
 | **Sign** | Place a visible signature from an image of your handwriting, your typed name, or one drawn on an accessible signature pad. |
-| **Repair accessibility** | Image descriptions, form field names, heading levels, table headers, page furniture, reading order, document language and title. |
+| **Repair accessibility** | Image descriptions, form field names, heading levels, table headers, page furniture, reading order, document language and title. And the big one: **give an untagged document a real structure tree**, so the headings and tables this program worked out from the layout are carried by the file itself and every other reader gets them too. |
 | **Annotate** | Read existing comments, highlights and replies, with the text each one covers — and write them. A comment attaches to whatever you are **on**, not to a place you point at, so commenting needs no sight and no mouse. Edit, reply, delete, all undoable. |
 | **Save safely** | Every save is verified against the original before it replaces it, and refuses rather than losing anything. |
 
@@ -367,6 +367,48 @@ Two consequences that had to be handled rather than discovered later:
 than an honest untagged one — checkers and readers believe the claim. The comment is still written
 and still perfectly readable; tagging is a bonus, not a precondition.
 
+### Tagging a document that has none
+
+`Ctrl+Shift+N` writes everything the layout analysis worked out — headings, lists, tables, figures —
+into a **new copy** of the file as a real structure tree. It is the largest repair here, and the
+reason for most of the rest: without it, all that inference lives in memory and dies when the
+document closes.
+
+The hard part is not the tree, it is that a tree is a set of labels attached to nothing until each
+element points at an MCID — and an MCID exists only where the **content stream** says so. The text
+is already drawn, so it has to be marked where it sits. Two simpler designs were tried against a
+real file first and both fail:
+
+| tried | why it fails |
+|---|---|
+| wrap each `BT`/`ET` text object | the sample's whole first page is **one** `BT`/`ET` block holding sixteen show operators, so this gives one tag per page |
+| match operators by their text | the operands are `<002B0052…>` — glyph indices into a subset font. There is nothing to match against |
+
+What is reliable is **position**, because that is what the operators state outright. So the tagger
+tracks the text matrix through `cm`/`q`/`Q`/`BT`/`Tm`/`Td`/`TD`/`T*`/`TL`, computes where every show
+operator lands, and hands that to the caller to match against the elements found by layout. Position
+is the common language between two independent readings of the same page, and a test asserts they
+agree on the real sample.
+
+The tree **mirrors the element tree** rather than being a flat list. A run of `/TD` with no `/Table`
+and no `/TR` above it is not a table, it is eleven loose cells, and a reader would give the numbers
+with no idea which row or column they came from.
+
+**It refuses to lie.** If less than two thirds of a page's text lands inside a tag, the document is
+not marked as tagged, and the user is told the coverage as a number. A file claiming
+`/MarkInfo /Marked true` over mostly-untagged text is worse than one making no claim — a checker
+passes it and a reader believes it. It is also always a **copy**: it rewrites every page's content
+stream, and while that is tested not to alter the drawing, the person running it cannot look at the
+result to check.
+
+**The bug worth recording**, because it is the exact failure mode this whole design is exposed to.
+The first working version inserted its marks between an operand and the operator that consumes it —
+`<002B…> /H1 <</MCID 0>> BDC Tj` — leaving `Tj` with nothing to draw. The file still opened. The
+pages still rendered. **38% of the document's text was simply gone**, and the only reason it was
+caught is that the save's own fingerprint refused to write it. The test that was supposed to cover
+this asserted that `BDC` came before `Tj` — which was still true. It now asserts `BDC` comes before
+the *operand*.
+
 ### For people who can see the screen
 
 There is a **page picture** pane (`Ctrl+Shift+R`) showing the page as it is actually printed,
@@ -497,7 +539,7 @@ dotnet run --project tests/AccessiblePdfEditor.Tests/AccessiblePdfEditor.Tests.c
 ```
 
 The test runner is a plain console program with no test-framework dependency, and exits non-zero on
-failure so it can gate a build. **262 tests, 2000 checks, all passing; 0 warnings in Debug and
+failure so it can gate a build. **281 tests, 2050 checks, all passing; 0 warnings in Debug and
 Release.**
 
 The browse view needs the **Microsoft Edge WebView2 runtime**, which ships with Windows 11 and with
