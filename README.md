@@ -524,6 +524,24 @@ finds it and its cells announce with their headers.
 
 ---
 
+## Getting the app
+
+A ready-to-run build is on the [releases page](https://github.com/taljazz/accessible-pdf-editor/releases):
+one **`AccessiblePdfEditor.exe`**, about 61 MB, nothing to install. It carries its own copy of .NET
+and of the screen-reader bridge, so there is no runtime to fetch first — download it, run it.
+
+Windows will warn that it is from an unknown publisher, because it is not code-signed. That warning
+is honest and you should read it: this is a hobby build from a public repository. Verify the
+download against the SHA-256 published with the release before running it.
+
+```powershell
+Get-FileHash AccessiblePdfEditor.exe -Algorithm SHA256
+```
+
+The one thing not bundled is the **Microsoft Edge WebView2 runtime**, which the browse view needs.
+It ships with Windows 11 and with Edge, so it is almost certainly already there; if it is not, the
+program says so and uses the text view instead.
+
 ## Building and running
 
 ```bash
@@ -536,6 +554,22 @@ dotnet run --project src/AccessiblePdfEditor/AccessiblePdfEditor.csproj
 
 ```bash
 dotnet run --project tests/AccessiblePdfEditor.Tests/AccessiblePdfEditor.Tests.csproj
+```
+
+To produce the single-file build that goes on the releases page:
+
+```bash
+dotnet publish src/AccessiblePdfEditor/AccessiblePdfEditor.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:DebugType=none -p:DebugSymbols=false -p:AllowedReferenceRelatedFileExtensions=none
+```
+
+`IncludeNativeLibrariesForSelfExtract` is the flag that matters and is not optional. Without it the
+five native libraries — Tolk, the NVDA and Dolphin clients, OpenAL — are dropped rather than bundled,
+and the result is a program that starts, looks fine, and cannot speak. With it they are unpacked
+together into one folder at run time, which Tolk needs because it loads the reader clients from its
+own directory. Worth checking after any change to the publish settings:
+
+```powershell
+(Get-Process AccessiblePdfEditor).Modules | Where-Object { $_.ModuleName -eq 'Tolk.dll' }
 ```
 
 The test runner is a plain console program with no test-framework dependency, and exits non-zero on
