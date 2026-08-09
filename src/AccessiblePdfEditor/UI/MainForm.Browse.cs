@@ -279,6 +279,20 @@ public sealed partial class MainForm
                 SignDocument();
                 break;
 
+            // Comment actions. The navigation position was moved to the comment just above, which
+            // is what these commands act on, so they behave identically here and in the text view.
+            case "editComment":
+                EditCommentHere();
+                break;
+
+            case "replyComment":
+                ReplyToCommentHere();
+                break;
+
+            case "deleteComment":
+                DeleteCommentHere();
+                break;
+
             case "link":
             case "button":
             case "attachment":

@@ -250,6 +250,17 @@ public sealed partial class MainForm : AccessibleFormBase
             (null, null),
             ("List &changes made\tCtrl+H", (_, _) => AnnounceChangeHistory())));
 
+        menu.Items.Add(BuildMenuItem("&Comment",
+            ("&New comment here\tCtrl+Shift+M", (_, _) => AddCommentHere()),
+            ("&Highlight this, with a note\tCtrl+Shift+K", (_, _) => AddCommentHere(AnnotationKind.Highlight)),
+            (null, null),
+            ("&Change this comment\tF2", (_, _) => EditCommentHere()),
+            ("&Reply to this comment\tCtrl+Shift+Y", (_, _) => ReplyToCommentHere()),
+            ("&Delete this comment\tCtrl+Delete", (_, _) => DeleteCommentHere()),
+            (null, null),
+            ("Next comment\tA", (_, _) => Navigate(NavigationGranularity.Annotation, MoveDirection.Next)),
+            ("&List all comments…\tCtrl+M", (_, _) => ShowAnnotations())));
+
         menu.Items.Add(BuildMenuItem("&Read",
             ("&Where am I\tCtrl+W", (_, _) => AnnouncePosition()),
             ("Read &current item\tCtrl+R", (_, _) => AnnounceCurrent()),
@@ -466,6 +477,14 @@ public sealed partial class MainForm : AccessibleFormBase
             case Keys.Control | Keys.Shift | Keys.P: ShowFormFillDialog(); return true;
             case Keys.Control | Keys.Shift | Keys.G: SignDocument(); return true;
             case Keys.Control | Keys.Shift | Keys.T: OpenTableView(); return true;
+
+            // Writing comments. Ctrl+M lists them, so Ctrl+Shift+M writes one — the same
+            // relationship the other list-and-act pairs use.
+            case Keys.Control | Keys.Shift | Keys.M: AddCommentHere(); return true;
+            case Keys.Control | Keys.Shift | Keys.K: AddCommentHere(AnnotationKind.Highlight); return true;
+            case Keys.F2: EditCommentHere(); return true;
+            case Keys.Control | Keys.Shift | Keys.Y: ReplyToCommentHere(); return true;
+            case Keys.Control | Keys.Delete: DeleteCommentHere(); return true;
             case Keys.Control | Keys.Shift | Keys.V: CycleVerbosity(); return true;
 
             case Keys.Control | Keys.Shift | Keys.R: TogglePagePicture(); return true;
@@ -524,6 +543,9 @@ public sealed partial class MainForm : AccessibleFormBase
         "Control W says where you are, Control R re-reads the current item, Control Space repeats " +
         "the last announcement. " +
         "Files: Control O opens, Control S saves, Control Shift S saves as. " +
+        "Commenting: Control Shift M writes a comment on whatever you are on, Control Shift K " +
+        "highlights it, F2 changes the comment you are on, Control Shift Y replies to it, and " +
+        "Control Delete deletes it after reading it back. " +
         "Fixing: Control Shift A checks accessibility, Control Shift F walks through the problems " +
         "one at a time, Control Shift I describes an image, Control Shift L labels a form field. " +
         "Control Z undoes and says what it undid. " +
@@ -699,6 +721,28 @@ public sealed partial class MainForm : AccessibleFormBase
         The Tools menu also has Clear this form, and Save a flattened copy —
         which turns the answers into ordinary page content so nobody can change
         them, and always writes a new file rather than touching this one.
+
+
+        COMMENTING
+
+        A comment attaches to whatever you are ON — this paragraph, this cell, this
+        field — so you never have to point at a place on the page. The comment
+        records what it is about, and is signed with your name from Settings.
+
+        Ctrl+Shift+M new comment on whatever you are on
+        Ctrl+Shift+K highlight what you are on, and write a note with it
+        F2           change the comment you are on
+        Ctrl+Shift+Y reply to the comment you are on
+        Ctrl+Delete  delete the comment you are on, after reading it back to you
+        A            next comment
+        Ctrl+M       list every comment
+
+        In the browse view each comment carries its own Change, Reply and Delete
+        buttons, because there your screen reader keeps the cursor to itself and
+        this program cannot tell which comment you are on.
+
+        Every one of these can be undone with Ctrl+Z, and the undo says which
+        comment it put back.
 
 
         REPAIRING ACCESSIBILITY

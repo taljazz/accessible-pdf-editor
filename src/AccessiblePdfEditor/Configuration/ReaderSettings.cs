@@ -60,6 +60,15 @@ public sealed class ReaderSettings
     /// </summary>
     public bool UseBrowseView { get; set; } = true;
 
+    /// <summary>
+    /// The name written on comments this user writes, as the annotation's /T.
+    ///
+    /// Defaults to the Windows account name, which is nearly always right and saves asking. It
+    /// matters more than it looks: a comment thread where every remark is anonymous cannot be
+    /// followed by ear, because there is no other cue distinguishing one speaker from another.
+    /// </summary>
+    public string AuthorName { get; set; } = Environment.UserName;
+
     #endregion
 
     #region Display

@@ -223,10 +223,15 @@ public abstract class DocumentSaverBase : IDocumentSaver
                     // than being reported as loss and rolling the save back.
                     int consumed = CountFieldsConsumedBySigning(document);
 
+                    // Comments the user added and deleted move the annotation count on purpose. A
+                    // deletion looks exactly like damage to the fingerprint, so it has to be
+                    // declared here or every deleted comment would roll the whole save back.
+                    int annotationChange = CountAnnotationChange(document);
+
                     var losses = after.FindLossesSince(
                         before,
                         expectedFieldChange: -consumed,
-                        expectedAnnotationChange: -consumed);
+                        expectedAnnotationChange: -consumed + annotationChange);
 
                     // The structure loss the user explicitly agreed to is not reported again as a
                     // fault; anything else is, and rolls the save back.
@@ -332,6 +337,14 @@ public abstract class DocumentSaverBase : IDocumentSaver
     #endregion
 
     #region File handling
+
+    /// <summary>
+    /// How many annotations the file is expected to gain or lose, counting only the changes the
+    /// user actually asked for. Deletions are negative, so a save that removes two comments and
+    /// adds one expects a net change of minus one.
+    /// </summary>
+    private static int CountAnnotationChange(PdfDocumentModel document) =>
+        document.Annotations.Count(a => a.IsUnsaved) - document.DeletedAnnotations.Count;
 
     /// <summary>
     /// Checks a path can be written before any work is done, so that a locked file is reported
@@ -467,6 +480,7 @@ public sealed class PdfSharpDocumentSaver : DocumentSaverBase
         using (sharp)
         {
             WriteFormValues(document, sharp, warnings);
+            WriteAnnotations(document, sharp, warnings);
             WriteMetadata(document, sharp, warnings);
 
             if (options.FlattenForms)
@@ -490,6 +504,27 @@ public sealed class PdfSharpDocumentSaver : DocumentSaverBase
     /// field would regenerate its appearance with this editor's font and formatting, quietly
     /// changing the look of parts of the form the user never went near.
     /// </summary>
+    /// <summary>
+    /// Writes the comments the user added, changed or deleted.
+    ///
+    /// Runs before the metadata so a failure here joins the other write warnings rather than
+    /// arriving after the document has been declared saved.
+    /// </summary>
+    private static void WriteAnnotations(
+        PdfDocumentModel document, SharpDocument sharp, List<string> warnings)
+    {
+        bool anythingToDo = document.DeletedAnnotations.Count > 0
+                            || document.Annotations.Any(a => a.NeedsWriting);
+
+        if (!anythingToDo)
+            return;
+
+        var summary = new AnnotationWriter(sharp, warnings).Write(document);
+
+        if (!summary.DidAnything)
+            warnings.Add("The comments could not be written to the file.");
+    }
+
     private static void WriteFormValues(
         PdfDocumentModel document, SharpDocument sharp, List<string> warnings)
     {

@@ -21,7 +21,7 @@ This is stated first because being honest about it is part of the design.
 | **Fill in forms** | Every AcroForm field type, with per-type validation, spoken format guidance, and recovered labels for fields the document never named. Clear the whole form (undoable), or save a flattened copy. |
 | **Sign** | Place a visible signature from an image of your handwriting, your typed name, or one drawn on an accessible signature pad. |
 | **Repair accessibility** | Image descriptions, form field names, heading levels, table headers, page furniture, reading order, document language and title. |
-| **Annotate** | Read existing comments, highlights and replies, with the text each one covers. |
+| **Annotate** | Read existing comments, highlights and replies, with the text each one covers — and write them. A comment attaches to whatever you are **on**, not to a place you point at, so commenting needs no sight and no mouse. Edit, reply, delete, all undoable. |
 | **Save safely** | Every save is verified against the original before it replaces it, and refuses rather than losing anything. |
 
 ### It cannot
@@ -307,6 +307,39 @@ with hanging indents turned out to be the dominant false positive: a numbered or
 its marker in one column and its text in another and satisfies every geometric test for a table.
 Half the tests for this feature are negative cases for exactly that reason.
 
+### Commenting without pointing at the page
+
+Every other PDF tool starts commenting with a gesture: select text with the mouse, click the
+highlighter, drag a box. All of it assumes you can see where you are putting things, and the
+keyboard equivalents mostly do not exist.
+
+Here a comment attaches to **whatever the reading position is on** — this paragraph, this table
+cell, this form field. "Comment on this" is a complete instruction, and the page rectangle is
+derived from the element rather than asked for. That is not a workaround for the absence of a
+mouse; it is a better description of what the user means, and it produces a better comment, because
+the anchor is a real element and the comment can therefore record *in words* what it is about:
+
+> Added a comment on the paragraph beginning “Payments are due”: This total looks wrong.
+
+which is what `Ctrl+Z` reads back if you undo it.
+
+**In the browse view, comments carry their own buttons.** In browse mode the screen reader keeps its
+cursor to itself, so a command meaning "the comment I am on" has nothing to act on — the same
+problem the repair prompts have. Each comment therefore renders with *Change*, *Reply* and *Delete*
+buttons, which `B` finds and `Enter` activates.
+
+Deleting reads the comment back in full before asking, rather than saying "delete this comment?".
+Someone who cannot see the page has no other way to check they are on the one they meant, and a
+deleted remark is not recoverable once the file is saved.
+
+**One limitation, stated rather than hidden:** the annotation is written correctly — `/Contents`
+for the reader, `/T` for the author, `/M` in PDF's own date format so other editors sort the thread
+— but it is **not** added to the structure tree. PDF/UA wants annotations there. Doing it means
+rewriting `/StructTreeRoot`, and this project has already measured what PDFsharp does to structure
+trees in files using object streams: it destroys them, in 24 of 24 real tagged documents tested.
+Trading a working structure tree for a correctly placed comment is a bad bargain in an
+accessibility tool.
+
 ### For people who can see the screen
 
 There is a **page picture** pane (`Ctrl+Shift+R`) showing the page as it is actually printed,
@@ -353,6 +386,9 @@ match NVDA's, so nothing has to be learned twice.
 | `T` / `G` / `L` / `P` | next table / graphic / list / paragraph |
 | `Ctrl+Shift+T` | open the current table in a real grid |
 | `A` | next comment |
+| `Ctrl+Shift+M` | write a comment on whatever you are on |
+| `Ctrl+Shift+K` | highlight what you are on, with a note |
+| `F2` / `Ctrl+Shift+Y` / `Ctrl+Delete` | change / reply to / delete the comment you are on |
 | `D` | next accessibility problem |
 | `Enter` | activate whatever you are on |
 | `Page Up`/`Down` | previous/next page |
@@ -434,7 +470,7 @@ dotnet run --project tests/AccessiblePdfEditor.Tests/AccessiblePdfEditor.Tests.c
 ```
 
 The test runner is a plain console program with no test-framework dependency, and exits non-zero on
-failure so it can gate a build. **229 tests, 1913 checks, all passing; 0 warnings in Debug and
+failure so it can gate a build. **257 tests, 1982 checks, all passing; 0 warnings in Debug and
 Release.**
 
 The browse view needs the **Microsoft Edge WebView2 runtime**, which ships with Windows 11 and with

@@ -202,6 +202,7 @@ internal static class HelpTests
                 "Ctrl+Shift+P", "Ctrl+Shift+V", "Ctrl+Shift+G",
                 "Ctrl+plus", "Ctrl+minus", "Ctrl+Shift+R", "Ctrl+Shift+B", "F6", "Ctrl+Shift+T",
                 "Ctrl+PageDown", "Ctrl+PageUp",
+                "Ctrl+Shift+M", "Ctrl+Shift+K", "F2", "Ctrl+Shift+Y", "Ctrl+Delete",
                 "F1", "Shift+F1", "Escape",
             ];
 
@@ -223,7 +224,7 @@ internal static class HelpTests
                          "THE TWO WAYS OF READING",
                          "MOVING THROUGH THE DOCUMENT", "TABLES", "READING",
                          "SEEING THE SCREEN", "FINDING THINGS", "FILES",
-                         "FILLING IN A FORM", "REPAIRING ACCESSIBILITY", "UNDOING", "HELP",
+                         "FILLING IN A FORM", "COMMENTING", "REPAIRING ACCESSIBILITY", "UNDOING", "HELP",
                      })
             {
                 t.Says(help, section);

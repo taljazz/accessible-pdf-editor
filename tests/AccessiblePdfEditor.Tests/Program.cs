@@ -51,6 +51,7 @@ internal static class Program
         NavigationIntegrationTests.Register(runner);
         TableViewTests.Register(runner);
         BrowseViewTests.Register(runner);
+        AnnotationTests.Register(runner);
         HelpTests.Register(runner);
         RoundTripTests.Register(runner);
         SafetyTests.Register(runner);

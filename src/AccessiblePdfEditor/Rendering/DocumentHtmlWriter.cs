@@ -343,6 +343,34 @@ public static class DocumentHtmlWriter
             if (annotation.AnchoredText is { Length: > 0 } anchored)
                 html.Append("<p class=\"quoted\">On the text: ").Append(Escape(anchored)).Append("</p>\n");
 
+            // Buttons rather than keyboard shortcuts, for the same reason the repair prompts are
+            // buttons: in browse mode the screen reader keeps its cursor to itself, so a command
+            // meaning "the comment I am on" has nothing to act on. A button is a real thing in the
+            // document that the reader's own B key finds and Enter activates.
+            if (showRepairButtons)
+            {
+                html.Append("<p class=\"actions\">");
+
+                foreach (var (action, label) in new[]
+                         {
+                             ("editComment", "Change this comment"),
+                             ("replyComment", "Reply to this comment"),
+                             ("deleteComment", "Delete this comment"),
+                         })
+                {
+                    html.Append("<button type=\"button\" class=\"act\" data-el=\"").Append(annotation.Id)
+                        .Append("\" data-act=\"").Append(action).Append("\">").Append(label)
+                        .Append("</button> ");
+                }
+
+                html.Append("</p>\n");
+            }
+
+            // Replies are nested inside the comment they answer, so the thread reads as a
+            // conversation rather than as a run of unrelated remarks that happen to be adjacent.
+            foreach (var reply in annotation.Replies)
+                WriteAnnotation(reply);
+
             html.Append("</aside>\n");
         }
 

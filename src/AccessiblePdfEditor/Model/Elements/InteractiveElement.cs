@@ -378,11 +378,11 @@ public sealed class AnnotationElement : InteractiveElement
 
     public override string Text => ActualText ?? Contents;
 
-    /// <summary>Who wrote it, from the annotation's /T.</summary>
-    public string? Author { get; init; }
+    /// <summary>Who wrote it, from the annotation's /T. Set here for annotations created in this program.</summary>
+    public string? Author { get; internal set; }
 
     /// <summary>When it was last changed, from the annotation's /M.</summary>
-    public DateTimeOffset? ModifiedAt { get; init; }
+    public DateTimeOffset? ModifiedAt { get; internal set; }
 
     /// <summary>
     /// The document text this annotation covers, recovered from its quad points. A highlight with
@@ -400,11 +400,34 @@ public sealed class AnnotationElement : InteractiveElement
     /// <summary>True when this annotation was created in this session and is not yet saved.</summary>
     public bool IsUnsaved { get; internal set; }
 
-    /// <summary>The identifier of the underlying PDF object, so edits can find it again on save.</summary>
+    /// <summary>
+    /// True when an annotation that already existed in the file has had its text changed here.
+    ///
+    /// Kept separate from <see cref="IsUnsaved"/> because the save treats them differently: a new
+    /// annotation has to be built and appended to the page, an edited one has to be found in the
+    /// file and have its text replaced. Rewriting every annotation on every save would regenerate
+    /// appearances the user never touched.
+    /// </summary>
+    public bool IsEdited { get; internal set; }
+
+    /// <summary>Whether this annotation still needs writing to the file.</summary>
+    public bool NeedsWriting => IsUnsaved || IsEdited;
+
+    /// <summary>
+    /// The name written as the annotation's /NM, which is how the save finds it again in the file.
+    /// Read from the document for existing annotations, generated for new ones.
+    /// </summary>
     public string? SourceObjectId { get; init; }
 
     /// <summary>Replaces the annotation's text. Used by editing commands.</summary>
     public void SetContents(string contents) => Contents = contents ?? string.Empty;
+
+    /// <summary>Records that the text has just been changed, and by whom.</summary>
+    internal void MarkChanged(DateTimeOffset when)
+    {
+        ModifiedAt = when;
+        IsEdited = !IsUnsaved;
+    }
 
     #endregion
 

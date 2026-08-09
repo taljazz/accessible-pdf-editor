@@ -259,6 +259,34 @@ public sealed class PdfDocumentModel
     /// <summary>Every embedded file.</summary>
     public IReadOnlyList<AttachmentElement> Attachments => _readingOrder.OfType<AttachmentElement>().ToList();
 
+    /// <summary>
+    /// Annotations the user has deleted but which are still in the file on disk.
+    ///
+    /// A deleted annotation is taken out of the element tree at once, so the document reads as the
+    /// user expects immediately. But the save has to know which ones to remove from the PDF, and by
+    /// then they are no longer anywhere in the tree to be found. So they are kept here — deletion is
+    /// not "forget it", it is "remember to remove it".
+    /// </summary>
+    public IReadOnlyList<AnnotationElement> DeletedAnnotations => _deletedAnnotations;
+
+    private readonly List<AnnotationElement> _deletedAnnotations = [];
+
+    /// <summary>Records that an annotation was deleted, so the next save removes it from the file.</summary>
+    internal void RecordAnnotationDeleted(AnnotationElement annotation)
+    {
+        // One that was never written to the file has nothing to delete on disk; dropping it from the
+        // tree is the whole of the job.
+        if (annotation.IsUnsaved)
+            return;
+
+        if (!_deletedAnnotations.Contains(annotation))
+            _deletedAnnotations.Add(annotation);
+    }
+
+    /// <summary>Cancels a recorded deletion, when the user undoes it.</summary>
+    internal void RestoreDeletedAnnotation(AnnotationElement annotation) =>
+        _deletedAnnotations.Remove(annotation);
+
     #endregion
 
     #region Outline
