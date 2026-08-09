@@ -547,6 +547,32 @@ The one thing not bundled is the **Microsoft Edge WebView2 runtime**, which the 
 It ships with Windows 11 and with Edge, so it is almost certainly already there; if it is not, the
 program says so and uses the text view instead.
 
+## Opening a PDF from Explorer
+
+The program takes a file path on the command line, which is what makes **double-clicking a PDF**,
+**Open with**, and **dragging a file onto it** all work:
+
+```bash
+AccessiblePdfEditor.exe "C:\Users\you\Documents\statement.pdf"
+```
+
+That matters more than it sounds for a screen-reader user. Opening a file the normal way — find it,
+press Enter — is a handful of keystrokes in a place they already are. The alternative is: launch an
+editor, then navigate a file dialog to somewhere they did not ask to be, which is several more steps
+for the same result.
+
+The parsing is deliberately forgiving, because it is handed whatever Windows chooses to pass rather
+than what a well-behaved caller would write: quoted paths, relative paths, several files at once
+from a drag, and switches from a shortcut are all handled, and anything that is not an existing file
+is skipped rather than treated as an error. A bad argument must never stop the program starting. The
+extension is **not** checked — whether a file is really a PDF is the loader's question and it
+already answers it properly.
+
+**To make it the default for PDFs**, use Windows' own association rather than anything this program
+does to your machine: right-click a PDF → *Open with* → *Choose another app* → browse to
+`AccessiblePdfEditor.exe` → tick *Always use this app*. That is reversible from the same dialog, and
+it is your registry rather than this program's business.
+
 ## Building and running
 
 ```bash

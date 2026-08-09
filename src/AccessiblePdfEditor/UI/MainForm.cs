@@ -57,6 +57,17 @@ public sealed partial class MainForm : AccessibleFormBase
     /// <summary>Suppresses caret-tracking while this program is the one moving the caret.</summary>
     private bool _movingCaret;
 
+    /// <summary>A document named on the command line, opened as soon as the window appears.</summary>
+    private string? _startupDocumentPath;
+
+    /// <summary>
+    /// Asks the window to open a document as soon as it is shown, rather than starting empty.
+    ///
+    /// Set before the window is shown, not opened here: loading needs a window to put dialogs on —
+    /// a password prompt, a warning about a damaged file — and there is not one yet.
+    /// </summary>
+    public void OpenOnStartup(string path) => _startupDocumentPath = path;
+
     public MainForm(
         ISpeechService speech,
         IAudioCueService cues,
@@ -121,7 +132,12 @@ public sealed partial class MainForm : AccessibleFormBase
         if (!PdfSharpEnvironment.CanDrawText)
             parts.Add(PdfSharpEnvironment.FontFailureReason ?? "New text cannot be added to documents.");
 
-        parts.Add("No document is open. Press Control plus O to open one, or F1 for the list of keys.");
+        // Saying "no document is open" a moment before one opens would be both wrong and
+        // disorienting: the user asked for this file by opening it, and the first thing they should
+        // hear is that it is on its way.
+        parts.Add(_startupDocumentPath is { Length: > 0 } path
+            ? $"Opening {Path.GetFileName(path)}."
+            : "No document is open. Press Control plus O to open one, or F1 for the list of keys.");
 
         return string.Join(" ", parts);
     }
@@ -203,7 +219,11 @@ public sealed partial class MainForm : AccessibleFormBase
 
         // Set once the window has a real width; setting it before then throws, because a splitter
         // distance has to fit inside a size that does not exist yet.
-        Shown += (_, _) => ApplySplitPosition();
+        Shown += (_, _) =>
+        {
+            ApplySplitPosition();
+            OpenStartupDocument();
+        };
     }
 
     /// <summary>Puts the splitter at a sensible place for the current window size.</summary>

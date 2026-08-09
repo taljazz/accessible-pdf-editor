@@ -32,7 +32,7 @@ internal static class Program
     #region Entry point
 
     [STAThread]
-    private static void Main()
+    private static void Main(string[] args)
     {
         ApplicationConfiguration.Initialize();
 
@@ -48,12 +48,65 @@ internal static class Program
 
         try
         {
-            Application.Run(services.GetRequiredService<MainForm>());
+            var window = services.GetRequiredService<MainForm>();
+
+            // A document named on the command line. This is what makes "Open with", double-clicking
+            // a PDF, and dragging one onto the program work — all of which are how a person
+            // normally opens a file, as opposed to launching an editor and then hunting for it.
+            if (FindDocumentArgument(args) is { } path)
+                window.OpenOnStartup(path);
+
+            Application.Run(window);
         }
         finally
         {
             settings.Save();
         }
+    }
+
+    /// <summary>
+    /// The document to open from the command line, or null when none was given.
+    ///
+    /// Deliberately forgiving about what it is handed, because it is handed whatever Windows
+    /// decides to pass: Explorer quotes paths containing spaces, a shortcut may add switches, and a
+    /// drag-and-drop can supply several files at once. Anything that is not an existing file is
+    /// skipped rather than treated as an error — a stray switch should not stop the program opening.
+    ///
+    /// The extension is NOT checked. Whether a file is really a PDF is the loader's question, and it
+    /// already answers it properly; refusing here on the strength of a file name would reject a
+    /// valid document that happened to be named badly, and say something less useful when it did.
+    /// </summary>
+    internal static string? FindDocumentArgument(string[]? args)
+    {
+        if (args is null)
+            return null;
+
+        foreach (string? raw in args)
+        {
+            if (string.IsNullOrWhiteSpace(raw))
+                continue;
+
+            // Explorer passes quoted paths for anything containing a space, and the quotes are not
+            // always stripped by the time they arrive here.
+            string candidate = raw.Trim().Trim('"');
+
+            if (candidate.Length == 0)
+                continue;
+
+            try
+            {
+                // A folder is a plausible thing to be handed and is not something to open.
+                if (File.Exists(candidate))
+                    return Path.GetFullPath(candidate);
+            }
+            catch (Exception)
+            {
+                // A malformed path — illegal characters, too long. Not this one, then; the next
+                // argument may still be good, and a bad one must not stop the program starting.
+            }
+        }
+
+        return null;
     }
 
     #endregion

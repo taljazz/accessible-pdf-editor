@@ -53,6 +53,7 @@ internal static class Program
         BrowseViewTests.Register(runner);
         AnnotationTests.Register(runner);
         ContentTaggingTests.Register(runner);
+        CommandLineTests.Register(runner);
         HelpTests.Register(runner);
         RoundTripTests.Register(runner);
         SafetyTests.Register(runner);

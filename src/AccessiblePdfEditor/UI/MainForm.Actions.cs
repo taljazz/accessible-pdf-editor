@@ -29,6 +29,37 @@ public sealed partial class MainForm : IInteractionHost
 {
     #region Opening a document
 
+    /// <summary>
+    /// Opens the document named on the command line, if there was one.
+    ///
+    /// Runs from Shown rather than from the constructor, so the window exists to host the dialogs a
+    /// difficult file may need — a password prompt, a warning that the structure is unreadable —
+    /// and so the opening announcement has already said what is happening.
+    /// </summary>
+    private void OpenStartupDocument()
+    {
+        if (_startupDocumentPath is not { Length: > 0 } path)
+            return;
+
+        // Cleared first, so a failure does not leave the program trying again on some later event.
+        _startupDocumentPath = null;
+
+        if (!File.Exists(path))
+        {
+            Play(AudioCue.Error);
+            Speech.BeginNewAnnouncement();
+
+            Announce(
+                $"{Path.GetFileName(path)} could not be found, so nothing was opened. " +
+                "Press Control plus O to choose a document.",
+                AnnouncementPriority.Assertive);
+
+            return;
+        }
+
+        LoadDocument(path);
+    }
+
     private void OpenDocument()
     {
         using var chooser = new OpenFileDialog
